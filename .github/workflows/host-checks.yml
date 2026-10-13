@@ -1,0 +1,62 @@
+name: Madeira host checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-checks:
+    name: Portable host checks
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Show available toolchains
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          swift --version
+          python3 --version
+          clang --version
+
+      - name: Verify Xcode project and list schemes
+        run: xcodebuild -list -project app/Madeira.xcodeproj
+
+      - name: Run portable host tests
+        run: |
+          set -euo pipefail
+          tests=(
+            check-config-catalog.py
+            check-jit-method.py
+            check-jit-network.py
+            check-launch-routing.py
+            check-frontend.py
+            check-library-api.py
+            check-onboarding.py
+            check-runtime-settings.py
+            check-control-presets.py
+            check-touch-gamepad.py
+            check-gamepad.py
+            check-library-groups.py
+            check-library-sections.py
+            check-d3d12-tiled.py
+          )
+
+          for test in "${tests[@]}"; do
+            echo "::group::${test}"
+            python3 "tests/host/${test}"
+            echo "::endgroup::"
+          done
