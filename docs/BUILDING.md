@@ -84,14 +84,15 @@ not currently done.
 ## Automated app-build preflight
 
 The GitHub Actions workflow `Madeira prerequisites (FFmpeg build and audit)`
-calls the FFmpeg library workflow, downloads its generated libraries and
-headers into the audit job, then runs `bash build/preflight-macos.sh` on macOS
-with Xcode 26.3 selected. The audit checks the Xcode project and SDKs, pinned
-submodules, and the app's required libraries, resources, and licensed runtime
-inputs. It does not build the full app, sign it, or launch a simulator. Missing
-prerequisites are listed as `PREFLIGHT BLOCKED` in the Actions step summary.
-The workflow can still be green because the audit itself completed; a green
-preflight is **not** evidence that the app builds or runs. The actual app
+calls the FFmpeg and iOS pairing library workflows, downloads their generated
+archives and required headers into the audit job, stages the two
+repository-owned license copies, then runs `bash build/preflight-macos.sh` on
+macOS with Xcode 26.3 selected. The audit checks the Xcode project and SDKs,
+pinned submodules, and the app's required libraries, resources, and licensed
+runtime inputs. It does not build the full app, sign it, or launch a simulator.
+Missing prerequisites are listed as `PREFLIGHT BLOCKED` in the Actions step
+summary. The workflow can still be green because the audit itself completed; a
+green preflight is **not** evidence that the app builds or runs. The actual app
 build remains the separate `xcodebuild` step listed above and has not been
 validated by this preflight.
 
@@ -105,3 +106,9 @@ workflow run before auditing the other inputs. The standalone FFmpeg workflow
 can also be started manually from GitHub Actions. It does not build the full
 app or commit generated files. A separate log artifact is retained even if
 the build fails.
+
+The `Build Madeira iOS pairing library` workflow can also be started manually.
+It builds the locked Rust crate for iOS arm64, verifies the archive architecture,
+checks that its generated third-party notices match the tracked copy, and uploads
+the library. The prerequisite workflow consumes that artifact; neither workflow
+commits generated binaries.

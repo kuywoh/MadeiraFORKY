@@ -1,0 +1,56 @@
+name: Build Madeira iOS pairing library
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rppairing-ios:
+    name: Build pairing static library (iOS arm64)
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode with iOS SDK support
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.3"
+
+      - name: Install Rust stable and the iOS target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Show build toolchain
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          rustc --version
+          cargo --version
+          rustup target list --installed
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Build pairing library and third-party notices
+        run: bash build/rppairing-ios/build.sh
+
+      - name: Verify iOS arm64 archive and generated notices
+        run: |
+          set -euo pipefail
+          test -s app/Madeira/libmadeira_rppairing.a
+          xcrun --sdk iphoneos lipo -info app/Madeira/libmadeira_rppairing.a
+          test -s app/Madeira/legal/LICENSES-rppairing-crates.txt
+          git diff --exit-code -- app/Madeira/legal/LICENSES-rppairing-crates.txt
+
+      - name: Upload pairing library and notices
+        uses: actions/upload-artifact@v4
+        with:
+          name: madeira-rppairing-ios-arm64
+          path: app/Madeira/libmadeira_rppairing.a
+          if-no-files-found: error
+          retention-days: 14

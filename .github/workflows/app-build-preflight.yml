@@ -13,9 +13,13 @@ jobs:
     name: Build FFmpeg libraries
     uses: ./.github/workflows/ffmpeg-ios-build.yml
 
+  build-pairing:
+    name: Build iOS pairing library
+    uses: ./.github/workflows/rppairing-ios-build.yml
+
   preflight:
     name: iOS prerequisites (does not build the app)
-    needs: build-ffmpeg
+    needs: [build-ffmpeg, build-pairing]
     runs-on: macos-15
     timeout-minutes: 15
 
@@ -35,6 +39,15 @@ jobs:
         with:
           name: ffmpeg-ios-arm64
           path: .
+
+      - name: Download iOS pairing library from this workflow run
+        uses: actions/download-artifact@v4
+        with:
+          name: madeira-rppairing-ios-arm64
+          path: app/Madeira
+
+      - name: Stage bundled license copies
+        run: bash build/stage-licenses.sh
 
       - name: Audit app build prerequisites (no compilation)
         run: bash build/preflight-macos.sh
