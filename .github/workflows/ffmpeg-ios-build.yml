@@ -1,0 +1,79 @@
+name: Build FFmpeg iOS libraries
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ffmpeg-ios:
+    name: Build FFmpeg static libraries (iOS arm64)
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode with iOS SDK support
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.3"
+
+      - name: Show Apple toolchain
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk iphoneos --show-sdk-path
+
+      - name: Build FFmpeg 7.1.1 for iOS arm64
+        run: bash build/ffmpeg/build.sh
+
+      - name: Verify generated archives and headers
+        run: |
+          set -euo pipefail
+          libraries=(
+            app/Madeira/libavformat.a
+            app/Madeira/libavcodec.a
+            app/Madeira/libswresample.a
+            app/Madeira/libavutil.a
+          )
+
+          for library in "${libraries[@]}"; do
+            test -s "$library"
+            xcrun --sdk iphoneos lipo -info "$library"
+            shasum -a 256 "$library"
+          done
+
+          test -d toolchains/ffmpeg-ios/include
+          test -n "$(find toolchains/ffmpeg-ios/include -type f -print -quit)"
+          echo "FFmpeg headers are present under toolchains/ffmpeg-ios/include."
+
+      - name: Upload generated iOS libraries and headers
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-ios-arm64-${{ github.sha }}
+          path: |
+            app/Madeira/libavformat.a
+            app/Madeira/libavcodec.a
+            app/Madeira/libswresample.a
+            app/Madeira/libavutil.a
+            toolchains/ffmpeg-ios/include/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Preserve FFmpeg build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-build-logs-${{ github.run_id }}
+          path: |
+            build/ffmpeg/obj/configure.log
+            build/ffmpeg/obj/make.log
+          if-no-files-found: ignore
+          retention-days: 7

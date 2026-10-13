@@ -93,3 +93,13 @@ BLOCKED` in the Actions step summary. The workflow can still be green because
 the audit itself completed; a green preflight is **not** evidence that the app
 builds or runs. The actual app build remains the separate `xcodebuild` step
 listed above and has not been validated by this preflight.
+
+## FFmpeg library CI trial
+
+The `Build FFmpeg iOS libraries` workflow runs the documented
+`build/ffmpeg/build.sh` script on macOS, verifies that the four iOS arm64
+archives and headers were produced, and uploads them as a short-lived Actions
+artifact. It does not build the app or commit generated files. Downloading and
+extracting the artifact at the repository root restores the ignored outputs
+for a later build; the artifact is tied to the source commit shown in its
+name. A separate log artifact is retained even if the build fails.
