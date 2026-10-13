@@ -1,4 +1,4 @@
-name: Madeira iOS app build preflight (report only)
+name: Madeira prerequisites (FFmpeg build and audit)
 
 on:
   push:
@@ -9,8 +9,13 @@ permissions:
   contents: read
 
 jobs:
+  build-ffmpeg:
+    name: Build FFmpeg libraries
+    uses: ./.github/workflows/ffmpeg-ios-build.yml
+
   preflight:
     name: iOS prerequisites (does not build the app)
+    needs: build-ffmpeg
     runs-on: macos-15
     timeout-minutes: 15
 
@@ -24,6 +29,12 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "26.3"
+
+      - name: Download FFmpeg libraries from this workflow run
+        uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-ios-arm64
+          path: .
 
       - name: Audit app build prerequisites (no compilation)
         run: bash build/preflight-macos.sh

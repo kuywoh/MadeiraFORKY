@@ -83,23 +83,25 @@ not currently done.
 
 ## Automated app-build preflight
 
-The GitHub Actions workflow `Madeira iOS app build preflight (report only)`
-runs `bash build/preflight-macos.sh` on macOS with Xcode 26.3 selected. The
-script checks the Xcode project and SDKs, pinned submodules, and the app's
-required libraries, resources, and licensed runtime inputs. It is an audit
-only: it does not compile, sign, launch a simulator, download dependencies, or
-stage generated files. Missing prerequisites are listed as `PREFLIGHT
-BLOCKED` in the Actions step summary. The workflow can still be green because
-the audit itself completed; a green preflight is **not** evidence that the app
-builds or runs. The actual app build remains the separate `xcodebuild` step
-listed above and has not been validated by this preflight.
+The GitHub Actions workflow `Madeira prerequisites (FFmpeg build and audit)`
+calls the FFmpeg library workflow, downloads its generated libraries and
+headers into the audit job, then runs `bash build/preflight-macos.sh` on macOS
+with Xcode 26.3 selected. The audit checks the Xcode project and SDKs, pinned
+submodules, and the app's required libraries, resources, and licensed runtime
+inputs. It does not build the full app, sign it, or launch a simulator. Missing
+prerequisites are listed as `PREFLIGHT BLOCKED` in the Actions step summary.
+The workflow can still be green because the audit itself completed; a green
+preflight is **not** evidence that the app builds or runs. The actual app
+build remains the separate `xcodebuild` step listed above and has not been
+validated by this preflight.
 
 ## FFmpeg library CI trial
 
-The `Build FFmpeg iOS libraries` workflow runs the documented
+The `Build FFmpeg iOS libraries` reusable workflow runs the documented
 `build/ffmpeg/build.sh` script on macOS, verifies that the four iOS arm64
 archives and headers were produced, and uploads them as a short-lived Actions
-artifact. It does not build the app or commit generated files. Downloading and
-extracting the artifact at the repository root restores the ignored outputs
-for a later build; the artifact is tied to the source commit shown in its
-name. A separate log artifact is retained even if the build fails.
+artifact. The prerequisite workflow consumes that artifact in the same
+workflow run before auditing the other inputs. The standalone FFmpeg workflow
+can also be started manually from GitHub Actions. It does not build the full
+app or commit generated files. A separate log artifact is retained even if
+the build fails.
