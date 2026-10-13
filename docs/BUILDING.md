@@ -80,3 +80,16 @@ rebuild, signing and installation has NOT been performed. Until it is,
 docs/LICENSING.md keeps the relink capability marked unverified. The
 alternative the LGPL offers, shipping the application's object files, is
 not currently done.
+
+## Automated app-build preflight
+
+The GitHub Actions workflow `Madeira iOS app build preflight (report only)`
+runs `bash build/preflight-macos.sh` on macOS with Xcode 26.3 selected. The
+script checks the Xcode project and SDKs, pinned submodules, and the app's
+required libraries, resources, and licensed runtime inputs. It is an audit
+only: it does not compile, sign, launch a simulator, download dependencies, or
+stage generated files. Missing prerequisites are listed as `PREFLIGHT
+BLOCKED` in the Actions step summary. The workflow can still be green because
+the audit itself completed; a green preflight is **not** evidence that the app
+builds or runs. The actual app build remains the separate `xcodebuild` step
+listed above and has not been validated by this preflight.

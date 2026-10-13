@@ -1,0 +1,29 @@
+name: Madeira iOS app build preflight (report only)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: iOS prerequisites (does not build the app)
+    runs-on: macos-15
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository and pinned submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode with iOS 26 SDK support
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.3"
+
+      - name: Audit app build prerequisites (no compilation)
+        run: bash build/preflight-macos.sh
