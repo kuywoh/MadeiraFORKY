@@ -98,6 +98,16 @@ sideload or runtime build. Missing licensed inputs remain listed as
 `PREFLIGHT BLOCKED` in the Actions step summary. No simulator or iPad launch is
 performed.
 
+### StikJIT Swift-interface compatibility
+
+The bundled StikJIT 1.9.0 framework was emitted by Swift 6.4, whose module
+interface printer can emit `Module::Type` selectors that Xcode 26.3's Swift
+6.2 compiler cannot parse. Madeira's two textual interfaces normalize those
+selectors to the equivalent dot-qualified form; the framework's Mach-O binary
+is unchanged. This is a compatibility-only edit to MPL-2.0-covered interface
+files, recorded in `app/Madeira/legal/THIRD-PARTY-NOTICES.md`. See the
+[upstream Swift compiler issue](https://github.com/swiftlang/swift/issues/91540).
+
 ## FFmpeg library CI trial
 
 The `Build FFmpeg iOS libraries` reusable workflow runs the documented
