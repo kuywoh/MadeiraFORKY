@@ -1,12 +1,7 @@
 name: Build DXMT iOS ARM64 graphics library
 
 on:
-  push:
-    paths:
-      - ".github/workflows/dxmt-ios-build.yml"
-      - "build/dxmt-ios/**"
-      - "dxmt/**"
-      - ".gitmodules"
+  workflow_call:
   workflow_dispatch:
 
 permissions:
