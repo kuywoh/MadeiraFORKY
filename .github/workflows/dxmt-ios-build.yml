@@ -14,10 +14,13 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Check out repository and pinned submodules
+      - name: Check out repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Check out pinned DXMT source and nested dependencies
+        run: git submodule update --init --recursive dxmt
 
       - name: Select Xcode with iOS 26 SDK support
         uses: maxim-lobanov/setup-xcode@v1
