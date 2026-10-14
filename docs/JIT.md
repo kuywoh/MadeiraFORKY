@@ -111,8 +111,9 @@ ID (SideStore, AltStore and Plume append the team ID, to the helper's ID as
 well). The request (PID, pairing data, script) goes in the extension request;
 the helper uses StikJIT with `forceScript` enabled, stays alive while Madeira's
 script services debugger requests, and answers when the request completes.
-StikJIT.framework is in Madeira's own `Frameworks` folder (the helper loads it
-through `@executable_path/../../Frameworks`), where sideloaders re-sign it.
+The rebuilt `StikJITSDK.framework` is in Madeira's own `Frameworks` folder (the
+helper loads it through `@executable_path/../../Frameworks`), where sideloaders
+re-sign it.
 
 An ExtensionKit extension, which the helper was before, does not survive such a
 rename: its extension point is named in files sideloaders do not rewrite, so
