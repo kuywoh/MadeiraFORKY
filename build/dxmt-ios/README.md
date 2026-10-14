@@ -32,15 +32,13 @@ Both are gitignored — rebuild via the steps below.
        | tar -xJ -C toolchains/
    ```
 
-3. **LLVM 15.0.7 cross-built for iOS-aarch64** at `toolchains/llvm-ios-build/`.
-   Two-stage build — first llvm-tblgen for macOS host, then iOS target libs
-   reusing it. Flags used (summary):
-   - Host stage: vanilla Release build of `llvm-tblgen`.
-   - iOS stage: `CMAKE_SYSTEM_NAME=iOS`, `CMAKE_OSX_SYSROOT=iphoneos`,
-     `LLVM_TABLEGEN=<host tblgen>`, `LLVM_BUILD_UTILS=Off`, no targets.
-     Needs a one-line edit to `llvm/cmake/modules/AddLLVM.cmake` changing
-     `MATCHES "Darwin"` to `MATCHES "Darwin|iOS"` so `-dead_strip` is used
-     instead of `--gc-sections` (which Apple ld doesn't accept).
+3. **LLVM cross-built for iOS ARM64** at `toolchains/llvm-ios-build/`.
+   The pinned and scripted two-stage build is `bash build/dxmt-ios/build-llvm.sh`.
+   It builds host `llvm-tblgen`, then the iOS static libraries, and applies a
+   narrowly checked compatibility edit to LLVM's `AddLLVM.cmake` so iOS uses
+   ld64's `-dead_strip` rather than unsupported GNU `--gc-sections`. The CI
+   workflow caches build trees and publishes the combined DXMT archive for
+   inspection; a green run is still needed to establish the recipe works.
 
 4. **Metal Toolchain**: `xcodebuild -downloadComponent MetalToolchain`
 
@@ -85,7 +83,7 @@ cp build-pe/src/d3d11/d3d11.dll \
 ```
 ./build.sh                    # builds libdxmt_unix.a (patched DXMT unix objs + airconv)
 
-# Combine DXMT objs + LLVM iOS static libs into one archive Xcode links.
+# Combine DXMT objects + LLVM iOS static libs into the archive Xcode links.
 xcrun -sdk iphoneos libtool -static -o libdxmt_combined.a \
     obj/*.o ../../toolchains/llvm-ios-build/lib/*.a
 cp libdxmt_combined.a ../../app/Madeira/

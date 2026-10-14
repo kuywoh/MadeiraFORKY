@@ -1,0 +1,74 @@
+name: Build DXMT iOS ARM64 graphics library
+
+on:
+  push:
+    paths:
+      - ".github/workflows/dxmt-ios-build.yml"
+      - "build/dxmt-ios/**"
+      - "dxmt/**"
+      - ".gitmodules"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-dxmt:
+    name: Build LLVM and DXMT for iPadOS
+    runs-on: macos-15
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out repository and pinned submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode with iOS 26 SDK support
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.3"
+
+      - name: Print build tool versions
+        run: |
+          xcodebuild -version
+          cmake --version
+          ninja --version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install the Metal compiler tools
+        run: xcodebuild -downloadComponent MetalToolchain
+
+      - name: Restore cached LLVM build trees
+        uses: actions/cache@v4
+        with:
+          path: |
+            toolchains/llvm-project
+            toolchains/llvm-host-build
+            toolchains/llvm-ios-build
+          key: dxmt-llvm-15-${{ runner.os }}-xcode-26.3-8dfdcc7b7bf66834a761bd8de445840ef68e4d1a-v1
+
+      - name: Build LLVM static libraries for iOS ARM64
+        run: bash build/dxmt-ios/build-llvm.sh
+
+      - name: Build DXMT Metal and shader translation library
+        run: bash build/dxmt-ios/build.sh
+
+      - name: Assemble the library linked by Madeira
+        run: |
+          set -euo pipefail
+          xcrun --sdk iphoneos libtool -static \
+            -o app/Madeira/libdxmt_combined.a \
+            build/dxmt-ios/obj/*.o \
+            toolchains/llvm-ios-build/lib/*.a
+          xcrun --sdk iphoneos lipo -info app/Madeira/libdxmt_combined.a
+          shasum -a 256 app/Madeira/libdxmt_combined.a
+          test -s app/Madeira/libdxmt_combined.a
+
+      - name: Upload DXMT ARM64 library
+        uses: actions/upload-artifact@v4
+        with:
+          name: dxmt-ios-arm64
+          path: app/Madeira/libdxmt_combined.a
+          if-no-files-found: error
+          retention-days: 14
