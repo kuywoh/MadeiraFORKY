@@ -84,8 +84,8 @@ not currently done.
 ## Automated app-build preflight
 
 The GitHub Actions workflow `Madeira prerequisites (FFmpeg build and audit)`
-calls the FFmpeg and iOS pairing library workflows, downloads their generated
-archives and required headers into the audit job, stages the two
+calls the FFmpeg, FEX, and iOS pairing library workflows, downloads their
+generated archives and required headers into the audit job, stages the two
 repository-owned license copies, then runs `bash build/preflight-macos.sh` on
 macOS with Xcode 26.3 selected. The audit checks the Xcode project and SDKs,
 pinned submodules, and the app's required libraries, resources, and licensed
@@ -112,3 +112,9 @@ It builds the locked Rust crate for iOS arm64, verifies the archive architecture
 checks that its generated third-party notices match the tracked copy, and uploads
 the library. The prerequisite workflow consumes that artifact; neither workflow
 commits generated binaries.
+
+The `Build FEX iOS libraries` workflow can also be started manually. It
+initializes the pinned FEX submodule tree, runs `build/fex-ios/build.sh`, checks
+all seven required archives for iOS arm64, and uploads them as an Actions
+artifact. The prerequisite workflow consumes those archives; it does not build
+the full app or commit generated binaries.

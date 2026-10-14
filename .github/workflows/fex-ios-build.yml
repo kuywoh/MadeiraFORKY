@@ -1,0 +1,73 @@
+name: Build FEX iOS libraries
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fex-ios:
+    name: Build FEX static libraries (iOS arm64)
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 3
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Initialize FEX and its nested submodules
+        run: git submodule update --init --recursive FEX
+
+      - name: Select Xcode with iOS SDK support
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.3"
+
+      - name: Show build toolchain
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          cmake --version
+          xcrun --sdk iphoneos --show-sdk-version
+          git submodule status --recursive FEX
+
+      - name: Build FEXCore iOS archives
+        run: bash build/fex-ios/build.sh
+
+      - name: Verify all required iOS arm64 archives
+        run: |
+          set -euo pipefail
+          libraries=(
+            FEX/build-ios/FEXCore/Source/libFEXCore.a
+            FEX/build-ios/FEXCore/Source/libFEXCore_Base.a
+            FEX/build-ios/FEXCore/Source/libJemallocLibs.a
+            FEX/build-ios/External/fmt/libfmt.a
+            FEX/build-ios/External/cephes/libcephes_128bit.a
+            FEX/build-ios/External/xxhash/cmake_unofficial/libxxhash.a
+            FEX/build-ios/External/SoftFloat-3e/libsoftfloat_3e.a
+          )
+
+          for library in "${libraries[@]}"; do
+            test -s "$library"
+            xcrun --sdk iphoneos lipo -info "$library"
+            shasum -a 256 "$library"
+          done
+
+      - name: Upload FEX iOS archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: fex-ios-arm64
+          path: |
+            FEX/build-ios/FEXCore/Source/libFEXCore.a
+            FEX/build-ios/FEXCore/Source/libFEXCore_Base.a
+            FEX/build-ios/FEXCore/Source/libJemallocLibs.a
+            FEX/build-ios/External/fmt/libfmt.a
+            FEX/build-ios/External/cephes/libcephes_128bit.a
+            FEX/build-ios/External/xxhash/cmake_unofficial/libxxhash.a
+            FEX/build-ios/External/SoftFloat-3e/libsoftfloat_3e.a
+          if-no-files-found: error
+          retention-days: 14

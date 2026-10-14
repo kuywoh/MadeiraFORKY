@@ -17,9 +17,13 @@ jobs:
     name: Build iOS pairing library
     uses: ./.github/workflows/rppairing-ios-build.yml
 
+  build-fex:
+    name: Build FEX iOS libraries
+    uses: ./.github/workflows/fex-ios-build.yml
+
   preflight:
     name: iOS prerequisites (does not build the app)
-    needs: [build-ffmpeg, build-pairing]
+    needs: [build-ffmpeg, build-pairing, build-fex]
     runs-on: macos-15
     timeout-minutes: 15
 
@@ -45,6 +49,12 @@ jobs:
         with:
           name: madeira-rppairing-ios-arm64
           path: app/Madeira
+
+      - name: Download FEX iOS libraries from this workflow run
+        uses: actions/download-artifact@v4
+        with:
+          name: fex-ios-arm64
+          path: FEX/build-ios
 
       - name: Stage bundled license copies
         run: bash build/stage-licenses.sh
