@@ -71,7 +71,7 @@ jobs:
             cd wine/build-macos
             ../configure --enable-archs=aarch64 --without-x --disable-tests --enable-winegstreamer
           )
-          for module in ntdll win32u winegstreamer ieframe; do
+          for module in ntdll win32u winegstreamer ieframe d3d11; do
             make -C "wine/build-macos/dlls/$module" -j"$JOBS" "aarch64-windows/$module.dll"
           done
           make -C wine/build-macos/server -j"$JOBS"
