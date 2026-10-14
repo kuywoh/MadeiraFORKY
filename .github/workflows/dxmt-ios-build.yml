@@ -40,16 +40,29 @@ jobs:
         run: xcodebuild -downloadComponent MetalToolchain
 
       - name: Restore cached LLVM build trees
-        uses: actions/cache@v4
+        id: llvm-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             toolchains/llvm-project
             toolchains/llvm-host-build
             toolchains/llvm-ios-build
-          key: dxmt-llvm-15-${{ runner.os }}-xcode-26.3-8dfdcc7b7bf66834a761bd8de445840ef68e4d1a-v1
+          key: dxmt-llvm-15-${{ runner.os }}-xcode-26.3-8dfdcc7b7bf66834a761bd8de445840ef68e4d1a-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            dxmt-llvm-15-${{ runner.os }}-xcode-26.3-8dfdcc7b7bf66834a761bd8de445840ef68e4d1a-
 
       - name: Build LLVM static libraries for iOS ARM64
         run: bash build/dxmt-ios/build-llvm.sh
+
+      - name: Save LLVM build trees, including partial progress
+        if: always() && steps.llvm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            toolchains/llvm-project
+            toolchains/llvm-host-build
+            toolchains/llvm-ios-build
+          key: dxmt-llvm-15-${{ runner.os }}-xcode-26.3-8dfdcc7b7bf66834a761bd8de445840ef68e4d1a-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Build DXMT Metal and shader translation library
         run: bash build/dxmt-ios/build.sh

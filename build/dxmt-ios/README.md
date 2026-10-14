@@ -37,8 +37,9 @@ Both are gitignored — rebuild via the steps below.
    It builds host `llvm-tblgen`, then the iOS static libraries, and applies a
    narrowly checked compatibility edit to LLVM's `AddLLVM.cmake` so iOS uses
    ld64's `-dead_strip` rather than unsupported GNU `--gc-sections`. The CI
-   workflow caches build trees and publishes the combined DXMT archive for
-   inspection; a green run is still needed to establish the recipe works.
+   workflow caches build trees (including partial progress after a failed
+   attempt) and publishes the combined DXMT archive for inspection; a green
+   run is still needed to establish the recipe works.
 
 4. **Metal Toolchain**: `xcodebuild -downloadComponent MetalToolchain`
 
