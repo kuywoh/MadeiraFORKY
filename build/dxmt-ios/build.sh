@@ -305,7 +305,11 @@ echo ""
 echo "Results: $SUCCEEDED succeeded, $FAILED failed"
 if [ -n "$FAILED_FILES" ]; then
     echo "Failed:$FAILED_FILES"
-    echo "See .err files in $OBJ_DIR/"
+    for name in $FAILED_FILES; do
+        echo "=== compiler diagnostics: $name ==="
+        cat "$OBJ_DIR/$name.err"
+    done
+    echo "Full .err files are in $OBJ_DIR/"
     exit 1
 fi
 
