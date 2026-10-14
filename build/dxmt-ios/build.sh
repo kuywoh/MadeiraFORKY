@@ -184,6 +184,7 @@ compile_objc "$DXMT_SRC/winemetal/unix/cache.c"          cache
 # file into a C header with xxd. airconv_context.cpp includes those headers,
 # so create them before compiling the airconv sources below.
 echo "=== airconv -- generated shader headers ==="
+mkdir -p "$BUILD_DIR/shader-headers"
 for shader in air_msad air_samplepos air_tessellation; do
     metal_source="$DXMT_SRC/airconv/shaders/$shader.metal"
     header_file="$BUILD_DIR/shader-headers/$shader.h"
@@ -353,3 +354,4 @@ if [ -f "$COMBINED" ]; then
 else
     echo "NOTE: $COMBINED absent; the app links that file, so build it before deploying."
 fi
+
