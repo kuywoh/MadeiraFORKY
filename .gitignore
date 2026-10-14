@@ -24,6 +24,8 @@ app/build/
 app/DerivedData/
 build/DerivedData/
 build/xcode-derived/
+build/_deps/StikJIT/
+build/stikjit-ios/out/
 FEX/build-ios/
 build/ntdll-unix/obj/
 build/wineserver/obj/

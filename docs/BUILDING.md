@@ -98,15 +98,24 @@ sideload or runtime build. Missing licensed inputs remain listed as
 `PREFLIGHT BLOCKED` in the Actions step summary. No simulator or iPad launch is
 performed.
 
-### StikJIT Swift-interface compatibility
+### Rebuilding StikJIT for the selected Xcode toolchain
 
-The bundled StikJIT 1.9.0 framework was emitted by Swift 6.4, whose module
-interface printer can emit `Module::Type` selectors that Xcode 26.3's Swift
-6.2 compiler cannot parse. Madeira's two textual interfaces normalize those
-selectors to the equivalent dot-qualified form; the framework's Mach-O binary
-is unchanged. This is a compatibility-only edit to MPL-2.0-covered interface
-files, recorded in `app/Madeira/legal/THIRD-PARTY-NOTICES.md`. See the
-[upstream Swift compiler issue](https://github.com/swiftlang/swift/issues/91540).
+The checked-in StikJIT 1.9.0 XCFramework was emitted by Swift 6.4, while the
+CI app-build workflow selects Xcode 26.3 (Swift 6.2). Swift 6.4's module
+selector syntax cannot be safely normalized by replacing `::` with dots when
+the module and a public enum share the name `StikJIT`. To avoid editing
+vendor-generated interfaces, CI rebuilds the pinned upstream StikJIT source
+with the same Xcode toolchain used for the app. The build script verifies the
+upstream commit and creates a fresh XCFramework; the workflow installs this
+generated framework only in its temporary checkout, leaving the tracked vendor
+binary untouched.
+
+On macOS, install Xcode 26.3 and XcodeGen, check out the pinned source commit
+`32287268fa5824f9edce4cb359f5833ce0cf7b00` into `build/_deps/StikJIT`, then
+run `STIKJIT_SOURCE_DIR=build/_deps/StikJIT STIKJIT_INSTALL_IN_APP=1 bash build/stikjit-ios/build.sh`.
+This replaces the tracked XCFramework with a toolchain-matched build in the
+local working copy; do not commit the regenerated binary unless intentionally
+updating the vendor dependency.
 
 ## FFmpeg library CI trial
 

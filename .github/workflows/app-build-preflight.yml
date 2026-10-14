@@ -90,8 +90,30 @@ jobs:
       - name: Audit app build prerequisites (no compilation)
         run: bash build/preflight-macos.sh
 
-      - name: Compile unsigned iOS app (Microsoft runtime files omitted)
+      - name: Check out pinned StikJIT source
         if: ${{ needs.build-ffmpeg.result == 'success' && needs.build-pairing.result == 'success' && needs.build-fex.result == 'success' && needs.build-dxmt.result == 'success' && needs.build-wine-unix.result == 'success' }}
+        uses: actions/checkout@v4
+        with:
+          repository: StikDebug/StikJIT
+          ref: 32287268fa5824f9edce4cb359f5833ce0cf7b00
+          path: build/_deps/StikJIT
+          persist-credentials: false
+
+      - name: Install XcodeGen
+        if: ${{ needs.build-ffmpeg.result == 'success' && needs.build-pairing.result == 'success' && needs.build-fex.result == 'success' && needs.build-dxmt.result == 'success' && needs.build-wine-unix.result == 'success' }}
+        run: brew list --versions xcodegen >/dev/null 2>&1 || brew install xcodegen
+
+      - name: Build StikJIT XCFramework with the selected Xcode toolchain
+        id: build-stikjit
+        if: ${{ needs.build-ffmpeg.result == 'success' && needs.build-pairing.result == 'success' && needs.build-fex.result == 'success' && needs.build-dxmt.result == 'success' && needs.build-wine-unix.result == 'success' }}
+        env:
+          STIKJIT_SOURCE_DIR: build/_deps/StikJIT
+          STIKJIT_OUTPUT_DIR: ${{ runner.temp }}/StikJIT.xcframework
+          STIKJIT_INSTALL_IN_APP: "1"
+        run: bash build/stikjit-ios/build.sh
+
+      - name: Compile unsigned iOS app (Microsoft runtime files omitted)
+        if: ${{ needs.build-ffmpeg.result == 'success' && needs.build-pairing.result == 'success' && needs.build-fex.result == 'success' && needs.build-dxmt.result == 'success' && needs.build-wine-unix.result == 'success' && steps.build-stikjit.outcome == 'success' }}
         run: |
           set -euo pipefail
           # The project references this folder as a bundle resource. Keep it
