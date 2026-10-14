@@ -24,6 +24,7 @@ jobs:
   preflight:
     name: iOS prerequisites (does not build the app)
     needs: [build-ffmpeg, build-pairing, build-fex]
+    if: always()
     runs-on: macos-15
     timeout-minutes: 15
 
@@ -39,18 +40,21 @@ jobs:
           xcode-version: "26.3"
 
       - name: Download FFmpeg libraries from this workflow run
+        if: ${{ needs.build-ffmpeg.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: ffmpeg-ios-arm64
           path: .
 
       - name: Download iOS pairing library from this workflow run
+        if: ${{ needs.build-pairing.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: madeira-rppairing-ios-arm64
           path: app/Madeira
 
       - name: Download FEX iOS libraries from this workflow run
+        if: ${{ needs.build-fex.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: fex-ios-arm64
