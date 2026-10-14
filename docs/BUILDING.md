@@ -81,20 +81,22 @@ docs/LICENSING.md keeps the relink capability marked unverified. The
 alternative the LGPL offers, shipping the application's object files, is
 not currently done.
 
-## Automated app-build preflight
+## Automated prerequisite audit and app compile check
 
-The GitHub Actions workflow `Madeira prerequisites (FFmpeg build and audit)`
+The GitHub Actions workflow `Madeira iOS dependencies and app compile check`
 calls the FFmpeg, FEX, DXMT, and iOS pairing library workflows, downloads their
 generated archives and required headers into the audit job, stages the two
 repository-owned license copies, then runs `bash build/preflight-macos.sh` on
 macOS with Xcode 26.3 selected. The audit checks the Xcode project and SDKs,
 pinned submodules, and the app's required libraries, resources, and licensed
-runtime inputs. It does not build the full app, sign it, or launch a simulator.
-Missing prerequisites are listed as `PREFLIGHT BLOCKED` in the Actions step
-summary. The workflow can still be green because the audit itself completed; a
-green preflight is **not** evidence that the app builds or runs. The actual app
-build remains the separate `xcodebuild` step listed above and has not been
-validated by this preflight.
+runtime inputs. When all source-built archives are available, the same job also
+compiles the Debug iOS app target without code signing. Because the Microsoft
+runtime DLLs are not supplied by CI, it creates only an empty placeholder for
+the referenced resource folder; it does not fabricate or fetch DLLs. This is a
+compile/link check only, and its app output is incomplete and not a validated
+sideload or runtime build. Missing licensed inputs remain listed as
+`PREFLIGHT BLOCKED` in the Actions step summary. No simulator or iPad launch is
+performed.
 
 ## FFmpeg library CI trial
 

@@ -1,4 +1,4 @@
-name: Madeira prerequisites (FFmpeg build and audit)
+name: Madeira iOS dependencies and app compile check
 
 on:
   push:
@@ -31,11 +31,11 @@ jobs:
     uses: ./.github/workflows/wine-unix-ios-build.yml
 
   preflight:
-    name: iOS prerequisites (does not build the app)
+    name: iOS prerequisite audit and incomplete app compile check
     needs: [build-ffmpeg, build-pairing, build-fex, build-dxmt, build-wine-unix]
     if: always()
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository and pinned submodules
@@ -89,3 +89,30 @@ jobs:
 
       - name: Audit app build prerequisites (no compilation)
         run: bash build/preflight-macos.sh
+
+      - name: Compile unsigned iOS app (Microsoft runtime files omitted)
+        if: ${{ needs.build-ffmpeg.result == 'success' && needs.build-pairing.result == 'success' && needs.build-fex.result == 'success' && needs.build-dxmt.result == 'success' && needs.build-wine-unix.result == 'success' }}
+        run: |
+          set -euo pipefail
+          # The project references this folder as a bundle resource. Keep it
+          # empty: the Microsoft DLLs are licensed inputs and are not supplied
+          # by this workflow. This compile check is intentionally incomplete.
+          mkdir -p app/Madeira/x86_64-vcruntime
+          xcodebuild \
+            -project app/Madeira.xcodeproj \
+            -scheme Madeira \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/MadeiraDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Explain compile-only result
+        if: ${{ always() && needs.build-ffmpeg.result == 'success' && needs.build-pairing.result == 'success' && needs.build-fex.result == 'success' && needs.build-dxmt.result == 'success' && needs.build-wine-unix.result == 'success' }}
+        run: |
+          {
+            echo '### App compilation scope'
+            echo
+            echo 'The unsigned iOS target was compiled for source/link validation only.'
+            echo 'The Microsoft Visual C++ runtime DLLs were not included; the resulting app is incomplete and is not a validated sideload or runtime build.'
+          } >> "$GITHUB_STEP_SUMMARY"
