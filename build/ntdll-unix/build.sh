@@ -41,6 +41,7 @@ compile_one() {
         SUCCEEDED=$((SUCCEEDED + 1))
     else
         echo "FAILED"
+        cat "$OBJ_DIR/$name.err"
         FAILED=$((FAILED + 1))
         FAILED_FILES="$FAILED_FILES $name"
     fi
@@ -76,6 +77,7 @@ compile_unixlib() {
         SUCCEEDED=$((SUCCEEDED + 1))
     else
         echo "FAILED"
+        cat "$OBJ_DIR/$name.err"
         FAILED=$((FAILED + 1))
         FAILED_FILES="$FAILED_FILES $name"
     fi
@@ -159,6 +161,7 @@ if xcrun -sdk iphoneos clang \
     SUCCEEDED=$((SUCCEEDED + 1))
 else
     echo "FAILED"
+    cat "$OBJ_DIR/wg_parser_apple_ios.err"
     FAILED=$((FAILED + 1))
     FAILED_FILES="$FAILED_FILES wg_parser_apple_ios"
 fi

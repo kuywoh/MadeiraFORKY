@@ -12,16 +12,6 @@ SHIMS_DIR="$REPO_ROOT/build/ntdll-unix/shims"
 OBJ_DIR="$BUILD_DIR/obj"
 mkdir -p "$OBJ_DIR"
 
-# Copy the base library if we don't have one yet
-if [ ! -f "$OBJ_DIR/libwineserver.a" ]; then
-    if [ -f "$APP_LIB" ]; then
-        cp "$APP_LIB" "$OBJ_DIR/libwineserver.a"
-    else
-        echo "ERROR: No base libwineserver.a found"
-        exit 1
-    fi
-fi
-
 CC_FLAGS=(
     -arch arm64 -isysroot "$SDK" -miphoneos-version-min=17.0 -O2
     -I"$WINE_SRC/include" -I"$WINE_SRC/include/wine"
@@ -57,6 +47,29 @@ compile_one() {
         return 1
     fi
 }
+
+# A clean checkout has no prebuilt archive. Build Wine's unmodified server
+# objects from the pinned source tree in that case; the patched objects below
+# replace their counterparts afterward. Keep this list aligned with the .c
+# entries in wine/server/Makefile.in, excluding files in PATCHED_FILES.
+if [ ! -f "$OBJ_DIR/libwineserver.a" ]; then
+    if [ -f "$APP_LIB" ]; then
+        cp "$APP_LIB" "$OBJ_DIR/libwineserver.a"
+    else
+        echo "=== Building unmodified wineserver objects from Wine sources ==="
+        BASE_FILES=(
+            atom change clipboard completion console d3dkmt debugger device directory
+            file hook mailslot mutex named_pipe procfs ptrace registry serial signal
+            symlink timer token trace
+        )
+        BASE_OBJECTS=()
+        for name in "${BASE_FILES[@]}"; do
+            compile_one "$WINE_SRC/server/$name.c" "$name"
+            BASE_OBJECTS+=("$OBJ_DIR/$name.o")
+        done
+        ar rcs "$OBJ_DIR/libwineserver.a" "${BASE_OBJECTS[@]}"
+    fi
+fi
 
 # Patched files: name:source_file:replaces_in_archive
 PATCHED_FILES=(

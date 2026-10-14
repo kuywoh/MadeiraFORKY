@@ -71,34 +71,49 @@ jobs:
             cd wine/build-macos
             ../configure --enable-archs=aarch64 --without-x --disable-tests --enable-winegstreamer
           )
-          for module in ntdll win32u; do
+          for module in ntdll win32u winegstreamer; do
             make -C "wine/build-macos/dlls/$module" -j"$JOBS" "aarch64-windows/$module.dll"
           done
+          make -C wine/build-macos/server -j"$JOBS"
+
+      - name: Generate ARM64EC DWrite headers
+        env:
+          DEST: ${{ runner.temp }}/wine-pe
+        run: bash build/wine-pe/build-modules.sh dwrite
 
       - name: Build iOS FreeType library
         run: bash build/freetype-ios/build.sh
 
       - name: Build Wine ntdll Unix-side library
+        continue-on-error: true
         run: bash build/ntdll-unix/build.sh
 
       - name: Build Wine win32u Unix-side library
+        continue-on-error: true
         run: bash build/win32u-unix/build.sh
 
+      - name: Build Wine server library
+        continue-on-error: true
+        run: bash build/wineserver/build.sh
+
       - name: Verify generated iOS arm64 libraries
+        if: always()
         run: |
           set -euo pipefail
-          for library in app/Madeira/libntdll_unix.a app/Madeira/libwin32u_unix.a; do
+          for library in app/Madeira/libntdll_unix.a app/Madeira/libwin32u_unix.a app/Madeira/libwineserver.a; do
             test -s "$library"
             xcrun --sdk iphoneos lipo -info "$library"
             shasum -a 256 "$library"
           done
 
       - name: Upload Wine Unix-side libraries
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: wine-unix-ios-arm64
           path: |
             app/Madeira/libntdll_unix.a
             app/Madeira/libwin32u_unix.a
-          if-no-files-found: error
+            app/Madeira/libwineserver.a
+          if-no-files-found: ignore
           retention-days: 14
