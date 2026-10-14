@@ -167,7 +167,6 @@ REQUIRED_FILES=(
     "app/Frameworks/StikJIT.xcframework/ios-arm64/StikJIT.framework/StikJIT"
     "FEX/build-ios/FEXCore/Source/libFEXCore.a"
     "FEX/build-ios/FEXCore/Source/libFEXCore_Base.a"
-    "FEX/build-ios/FEXCore/Source/libJemallocLibs.a"
     "FEX/build-ios/External/fmt/libfmt.a"
     "FEX/build-ios/External/cephes/libcephes_128bit.a"
     "FEX/build-ios/External/xxhash/cmake_unofficial/libxxhash.a"
