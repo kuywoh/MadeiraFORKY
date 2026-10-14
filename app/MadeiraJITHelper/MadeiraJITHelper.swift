@@ -7,7 +7,7 @@
 
 import Foundation
 #if !targetEnvironment(simulator)
-import StikJIT
+import StikJITSDK
 #endif
 
 #if targetEnvironment(simulator)

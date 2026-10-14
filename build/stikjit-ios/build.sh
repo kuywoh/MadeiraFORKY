@@ -39,6 +39,7 @@ xcodebuild \
   -archivePath "$WORK_DIR/StikJIT.xcarchive" \
   -derivedDataPath "$WORK_DIR/DerivedData" \
   BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+  PRODUCT_MODULE_NAME=StikJITSDK \
   SKIP_INSTALL=NO \
   CODE_SIGNING_ALLOWED=NO \
   archive
