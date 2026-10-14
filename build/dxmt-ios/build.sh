@@ -180,6 +180,26 @@ echo "=== winemetal unix (Objective-C) ==="
 compile_objc "$DXMT_SRC/winemetal/unix/winemetal_unix.c" winemetal_unix
 compile_objc "$DXMT_SRC/winemetal/unix/cache.c"          cache
 
+# meson.build generates these AIR files from Metal and then turns each AIR
+# file into a C header with xxd. airconv_context.cpp includes those headers,
+# so create them before compiling the airconv sources below.
+echo "=== airconv -- generated shader headers ==="
+for shader in air_msad air_samplepos air_tessellation; do
+    metal_source="$DXMT_SRC/airconv/shaders/$shader.metal"
+    header_file="$BUILD_DIR/shader-headers/$shader.h"
+    if [ ! -f "$header_file" ] \
+       || [ "$metal_source" -nt "$header_file" ] \
+       || [ "$0" -nt "$header_file" ]; then
+        (cd "$BUILD_DIR/shader-headers" \
+         && xcrun -sdk macosx metal -std=metal3.1 --target=air64-apple-macos14.0 \
+              -o "$shader.air" -c "$metal_source" \
+         && xxd -n "$shader" -i "$shader.air" "$shader.h")
+        echo "  $shader.h                                OK"
+    else
+        echo "  $shader.h                                CACHED"
+    fi
+done
+
 echo "=== airconv (C++ 20, needs LLVM headers) ==="
 for cpp in airconv_context.cpp air_type.cpp air_signature.cpp air_operations.cpp \
            dxbc_converter.cpp dxbc_converter_gs.cpp dxbc_converter_ts.cpp \
