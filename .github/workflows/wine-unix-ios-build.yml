@@ -1,0 +1,104 @@
+name: Build Wine Unix-side libraries
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  wine-unix-ios:
+    name: Build Wine Unix-side libraries (iOS arm64)
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 3
+      JOBS: 3
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode with iOS 26 SDK support
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.3"
+
+      - name: Initialize pinned Wine source
+        run: git submodule update --init --recursive wine
+
+      - name: Check out pinned FreeType source
+        uses: actions/checkout@v4
+        with:
+          repository: freetype/freetype
+          ref: 42608f77f20749dd6ddc9e0536788eaad70ea4b5
+          path: research/freetype
+          persist-credentials: false
+
+      - name: Download FFmpeg iOS headers and libraries
+        uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-ios-arm64
+          path: .
+
+      - name: Install Wine build tools
+        run: |
+          set -euo pipefail
+          brew list bison >/dev/null 2>&1 || brew install bison
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          bison --version
+          cmake --version
+
+      - name: Install checksum-pinned llvm-mingw
+        run: |
+          set -euo pipefail
+          mkdir -p toolchains
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/llvm-mingw.tar.xz" \
+            https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-macos-universal.tar.xz
+          echo "bd85a3975723815cef28dbbd2ca2cb0c926f6b348a12a0453f39f7af273cb3f7  $RUNNER_TEMP/llvm-mingw.tar.xz" | shasum -a 256 --check
+          tar -xJf "$RUNNER_TEMP/llvm-mingw.tar.xz" -C toolchains
+          echo "$GITHUB_WORKSPACE/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin" >> "$GITHUB_PATH"
+
+      - name: Build iOS GnuTLS headers and libraries
+        run: bash build/gnutls-ios/build.sh
+
+      - name: Configure Wine aarch64 build tree and generate headers
+        run: |
+          set -euo pipefail
+          mkdir -p wine/build-macos
+          (
+            cd wine/build-macos
+            ../configure --enable-archs=aarch64 --without-x --disable-tests --enable-winegstreamer
+          )
+          for module in ntdll win32u; do
+            make -C "wine/build-macos/dlls/$module" -j"$JOBS"
+          done
+
+      - name: Build iOS FreeType library
+        run: bash build/freetype-ios/build.sh
+
+      - name: Build Wine ntdll Unix-side library
+        run: bash build/ntdll-unix/build.sh
+
+      - name: Build Wine win32u Unix-side library
+        run: bash build/win32u-unix/build.sh
+
+      - name: Verify generated iOS arm64 libraries
+        run: |
+          set -euo pipefail
+          for library in app/Madeira/libntdll_unix.a app/Madeira/libwin32u_unix.a; do
+            test -s "$library"
+            xcrun --sdk iphoneos lipo -info "$library"
+            shasum -a 256 "$library"
+          done
+
+      - name: Upload Wine Unix-side libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine-unix-ios-arm64
+          path: |
+            app/Madeira/libntdll_unix.a
+            app/Madeira/libwin32u_unix.a
+          if-no-files-found: error
+          retention-days: 14

@@ -46,7 +46,7 @@ git-ignored and consumed by the app project.
    port was built and device-tested with on the WSL toolchain; the macOS form
    of the script is UNVERIFIED.
 2. FEX (submodule, branch ios-port-2607):
-   - `FEX/build-ios`: `build/fex-ios/build.sh` (same options as the development CMakeCache) -> `FEX/build-ios/FEXCore/Source/lib{FEXCore,FEXCore_Base,JemallocLibs}.a` and the `External/{cephes,fmt,SoftFloat-3e,xxhash}` archives. UNVERIFIED from clean.
+   - `FEX/build-ios`: `build/fex-ios/build.sh` -> `FEXCore/Source/lib{FEXCore,FEXCore_Base}.a` and the `External/{cephes,fmt,SoftFloat-3e,xxhash}` archives. Upstream FEX disables jemalloc/rpmalloc on Apple, so `libJemallocLibs.a` is not produced or linked. Verified from a clean macOS 15 ARM64 GitHub Actions build, including archive architecture checks.
    - `FEX/build-arm64ec`: `build/fex-arm64ec/build.sh` (configures with `FEX/Data/CMake/toolchain_mingw.cmake` and the recorded options on first run, builds target `arm64ecfex`, copies `Bin/libarm64ecfex.dll` to `app/Madeira/arm64ec-windows/xtajit64.dll`). The build step was verified this session; the first-run configure in the script is reconstructed from CMakeCache and UNVERIFIED.
 3. Wine (submodule, branch madeira-lgpl):
    - unix side: `build/ntdll-unix/build.sh`, `build/wineserver/build.sh`,

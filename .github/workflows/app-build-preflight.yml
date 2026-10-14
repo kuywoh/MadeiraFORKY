@@ -21,9 +21,14 @@ jobs:
     name: Build FEX iOS libraries
     uses: ./.github/workflows/fex-ios-build.yml
 
+  build-wine-unix:
+    name: Build Wine Unix-side libraries
+    needs: build-ffmpeg
+    uses: ./.github/workflows/wine-unix-ios-build.yml
+
   preflight:
     name: iOS prerequisites (does not build the app)
-    needs: [build-ffmpeg, build-pairing, build-fex]
+    needs: [build-ffmpeg, build-pairing, build-fex, build-wine-unix]
     if: always()
     runs-on: macos-15
     timeout-minutes: 15
@@ -59,6 +64,13 @@ jobs:
         with:
           name: fex-ios-arm64
           path: FEX/build-ios
+
+      - name: Download Wine Unix-side libraries from this workflow run
+        if: ${{ needs.build-wine-unix.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: wine-unix-ios-arm64
+          path: app/Madeira
 
       - name: Stage bundled license copies
         run: bash build/stage-licenses.sh
