@@ -21,6 +21,10 @@ jobs:
     name: Build FEX iOS libraries
     uses: ./.github/workflows/fex-ios-build.yml
 
+  build-dxmt:
+    name: Build DXMT iOS ARM64 graphics library
+    uses: ./.github/workflows/dxmt-ios-build.yml
+
   build-wine-unix:
     name: Build Wine Unix-side libraries
     needs: build-ffmpeg
@@ -28,7 +32,7 @@ jobs:
 
   preflight:
     name: iOS prerequisites (does not build the app)
-    needs: [build-ffmpeg, build-pairing, build-fex, build-wine-unix]
+    needs: [build-ffmpeg, build-pairing, build-fex, build-dxmt, build-wine-unix]
     if: always()
     runs-on: macos-15
     timeout-minutes: 15
@@ -65,6 +69,13 @@ jobs:
           name: fex-ios-arm64
           path: FEX/build-ios
 
+      - name: Download DXMT iOS library from this workflow run
+        if: ${{ needs.build-dxmt.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: dxmt-ios-arm64
+          path: app/Madeira
+
       - name: Download Wine Unix-side libraries from this workflow run
         if: always()
         continue-on-error: true
@@ -78,3 +89,4 @@ jobs:
 
       - name: Audit app build prerequisites (no compilation)
         run: bash build/preflight-macos.sh
+
