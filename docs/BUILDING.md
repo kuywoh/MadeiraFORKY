@@ -105,9 +105,11 @@ CI app-build workflow selects Xcode 26.3 (Swift 6.2). Swift 6.4's module
 selector syntax cannot be safely normalized by replacing `::` with dots when
 the module and a public enum share the name `StikJIT`. To avoid editing
 vendor-generated interfaces, CI rebuilds the pinned upstream StikJIT source
-with the same Xcode toolchain used for the app and gives the Swift module the
-nonconflicting name `StikJITSDK` (the framework binary and public `StikJIT`
-API remain unchanged). The build script verifies the upstream commit and
+with the same Xcode toolchain used for the app and gives both the Swift module
+and framework product the discoverable, nonconflicting name `StikJITSDK` (the
+public `StikJIT` API remains unchanged). The helper links that framework by its
+product name so Swift can resolve the module from the framework bundle. The
+build script verifies the upstream commit and
 creates a fresh XCFramework; the workflow installs this generated framework
 only in its temporary checkout, leaving the tracked vendor binary untouched.
 

@@ -700,7 +700,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\n[ \"$PLATFORM_NAME\" = iphoneos ] || exit 0\n# Madeira.app/Frameworks, which the JIT helper (PlugIns/MadeiraJITHelper.appex) loads\n# through @executable_path/../../Frameworks: sideloaders re-sign the app's own\n# Frameworks folder, and left an ad-hoc framework inside the helper unsigned.\nSRC=\"$SRCROOT/Frameworks/StikJIT.xcframework/ios-arm64/StikJIT.framework\"\nDST=\"$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/StikJIT.framework\"\nrm -rf \"$DST\"\nmkdir -p \"$(dirname \"$DST\")\"\nditto \"$SRC\" \"$DST\"\n# The framework ships without an Info.plist, which an app's embedded framework needs.\nif [ ! -f \"$DST/Info.plist\" ]; then\n  P=\"$DST/Info.plist\"\n  /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string StikJIT' -c \"Add :CFBundleIdentifier string $PRODUCT_BUNDLE_IDENTIFIER.StikJIT\" -c 'Add :CFBundleName string StikJIT' -c 'Add :CFBundlePackageType string FMWK' -c 'Add :CFBundleInfoDictionaryVersion string 6.0' -c 'Add :CFBundleShortVersionString string 1.0' -c 'Add :CFBundleVersion string 1' -c 'Add :CFBundleSupportedPlatforms array' -c 'Add :CFBundleSupportedPlatforms:0 string iPhoneOS' -c 'Add :MinimumOSVersion string 26.0' \"$P\" >/dev/null\n  plutil -convert binary1 \"$P\"\nfi\nif [ -n \"$EXPANDED_CODE_SIGN_IDENTITY\" ] && [ \"$CODE_SIGNING_ALLOWED\" != \"NO\" ]; then\n  codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" --timestamp=none \"$DST\"\nfi\n";
+shellScript = "set -e\n[ \"$PLATFORM_NAME\" = iphoneos ] || exit 0\n# Madeira.app/Frameworks, which the JIT helper (PlugIns/MadeiraJITHelper.appex) loads\n# through @executable_path/../../Frameworks: sideloaders re-sign the app's own\n# Frameworks folder, and left an ad-hoc framework inside the helper unsigned.\nSRC=\"$SRCROOT/Frameworks/StikJIT.xcframework/ios-arm64/StikJITSDK.framework\"\nDST=\"$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/StikJITSDK.framework\"\nrm -rf \"$DST\"\nmkdir -p \"$(dirname \"$DST\")\"\nditto \"$SRC\" \"$DST\"\n# The framework ships without an Info.plist, which an app's embedded framework needs.\nif [ ! -f \"$DST/Info.plist\" ]; then\n  P=\"$DST/Info.plist\"\n  /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string StikJITSDK' -c \"Add :CFBundleIdentifier string $PRODUCT_BUNDLE_IDENTIFIER.StikJITSDK\" -c 'Add :CFBundleName string StikJITSDK' -c 'Add :CFBundlePackageType string FMWK' -c 'Add :CFBundleInfoDictionaryVersion string 6.0' -c 'Add :CFBundleShortVersionString string 1.0' -c 'Add :CFBundleVersion string 1' -c 'Add :CFBundleSupportedPlatforms array' -c 'Add :CFBundleSupportedPlatforms:0 string iPhoneOS' -c 'Add :MinimumOSVersion string 26.0' \"$P\" >/dev/null\n  plutil -convert binary1 \"$P\"\nfi\nif [ -n \"$EXPANDED_CODE_SIGN_IDENTITY\" ] && [ \"$CODE_SIGNING_ALLOWED\" != \"NO\" ]; then\n  codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" --timestamp=none \"$DST\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -995,7 +995,7 @@
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"-framework",
-					StikJIT,
+					StikJITSDK,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "$(MADEIRA_BUNDLE_IDENTIFIER).JITHelper";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1026,7 +1026,7 @@
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"-framework",
-					StikJIT,
+					StikJITSDK,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "$(MADEIRA_BUNDLE_IDENTIFIER).JITHelper";
 				PRODUCT_NAME = "$(TARGET_NAME)";

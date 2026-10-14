@@ -40,11 +40,18 @@ xcodebuild \
   -derivedDataPath "$WORK_DIR/DerivedData" \
   BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
   PRODUCT_MODULE_NAME=StikJITSDK \
+  PRODUCT_NAME=StikJITSDK \
   SKIP_INSTALL=NO \
   CODE_SIGNING_ALLOWED=NO \
   archive
+FRAMEWORK_PATH="$WORK_DIR/StikJIT.xcarchive/Products/Library/Frameworks/StikJITSDK.framework"
+if [[ ! -d "$FRAMEWORK_PATH/Modules/StikJITSDK.swiftmodule" ]]; then
+  echo "Rebuilt framework does not expose the expected StikJITSDK Swift module: $FRAMEWORK_PATH" >&2
+  find "$WORK_DIR/StikJIT.xcarchive/Products/Library/Frameworks" -maxdepth 4 -type d -name '*.swiftmodule' -print >&2
+  exit 1
+fi
 xcodebuild -create-xcframework \
-  -framework "$WORK_DIR/StikJIT.xcarchive/Products/Library/Frameworks/StikJIT.framework" \
+  -framework "$FRAMEWORK_PATH" \
   -output "$WORK_DIR/StikJIT.xcframework"
 
 if [[ -e "$OUTPUT_DIR" ]]; then
