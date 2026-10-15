@@ -1,10 +1,19 @@
 # Obtaining the Microsoft Visual C++ runtime DLLs
 
-Games built with MSVC need the Visual C++ runtime. Those DLLs are authored by
-Microsoft and are **not** redistributable under this project's license, so they
-are not committed here. You supply them yourself.
+Some Windows programs need functions that are not implemented by Wine's
+ARM64EC Visual C++ built-ins. Madeira can use the built-ins without this
+optional override directory; when unmodified Microsoft DLLs are supplied,
+Madeira overlays eligible files at runtime (with specific exceptions for
+`msvcp140.dll` and `vcruntime140.dll` to preserve ARM64EC exception handling).
+This directory is not required to compile the iOS app, and its presence alone
+does not establish compatibility with any particular program.
 
-Twelve files are expected in `app/Madeira/x86_64-vcruntime/`:
+These DLLs are Microsoft-authored and are **not** covered by this project's
+license or committed here. Only use copies obtained under Microsoft's
+redistribution terms, unmodified.
+
+The optional overlay consists of these twelve files in
+`app/Madeira/x86_64-vcruntime/`:
 
 ```
 concrt140.dll              msvcp140_codecvt_ids.dll   vcruntime140.dll

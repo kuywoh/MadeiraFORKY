@@ -21,7 +21,7 @@ remediation; steps marked UNVERIFIED have not yet been re-run from scratch.
 | `toolchains/llvm-mingw-20260421-ucrt-macos-universal/` | 122 MB third-party toolchain | `llvm-mingw-20260421-ucrt-macos-universal.tar.xz` from https://github.com/mstorsjo/llvm-mingw/releases/tag/20260421, SHA-256 `bd85a3975723815cef28dbbd2ca2cb0c926f6b348a12a0453f39f7af273cb3f7`, extracted under `toolchains/` | tarball hash recorded; download UNVERIFIED |
 | `toolchains/llvm-project/` + `toolchains/llvm-ios-build/` + `toolchains/llvm-host-build/` | LLVM built for iOS (hours) | pinned upstream LLVM checkout and reproducible CI build: `.github/workflows/dxmt-ios-build.yml` runs `build/dxmt-ios/build-llvm.sh` | pending CI verification |
 | `research/GPTK/Metal Shader Converter 4.0 beta 2.pkg` | Apple installer, 30 MB, licence-bound | Apple developer downloads; SHA-256 `1acc33c87ea663933df89721a998d066106685473020bcbe007cee7a16155734` (pinned in `build/madeira-d3d12/deps.sh`). Only needed to REBUILD the converter fetch; the library itself is tracked | n/a |
-| `app/Madeira/x86_64-vcruntime/` | Microsoft Visual C++ 2015-2022 x64 runtime DLLs (concrt140, msvcp140*, vcamp140, vccorlib140, vcruntime140*), redistributable under Microsoft's terms, not under this repository's licence | extract from Microsoft's `vc_redist.x64.exe` (or copy from `C:\Windows\System32` of a licensed Windows install) into that folder | UNVERIFIED |
+| `app/Madeira/x86_64-vcruntime/` | Optional Microsoft Visual C++ x64 runtime overrides for Windows programs needing APIs beyond Wine's ARM64EC built-ins. The app compiles without these files; the runtime directory is gitignored. | If needed for a specific program, supply eligible DLLs unmodified under Microsoft's terms; see `tools/fetch-vcruntime.md`. | Not required for compile; app-specific runtime coverage unverified |
 | `build/wine-mono/wine-mono-11.0.0/` (optional) | Wine Mono, the .NET Framework runtime Wine's mscoree loads (not Microsoft code; licences in `build/wine-mono/COPYING` and `THIRD-PARTY-NOTICES.md`), 41.6 MB download, 228 MB unpacked | `bash build/wine-mono/fetch.sh` downloads `wine-mono-11.0.0-x86.tar.xz` from https://dl.winehq.org/wine/wine-mono/11.0.0/ and checks its SHA-256; `--source` also fetches the matching source tarball. Version and hashes are pinned in `build/wine-mono/pin.sh`, which does not follow `WINE_MONO_VERSION` in `wine/dlls/mscoree/mscoree_private.h`. The Xcode phase "Bundle Wine Mono" runs `build/wine-mono/bundle.sh`, which copies it into `Madeira.app/wine-mono` without the `lib/mono/*-api` reference assemblies and patches the bundled `mscorlib.dll`: **a dirty hack** (4 IL bytes: `GC.Collect` with `GCCollectionMode.Optimized` returns, for Terraria), pinned to the exact file by SHA-256 so the build stops on any other mscorlib; TODO: replace it with a Wine Mono built from source or an upstream fix (see the TODO in `bundle.sh`). Without the folder the app builds without Mono, and .NET Framework programs fail with "Wine Mono is not installed". **Release builds leave Wine Mono out** (2026-10-06): the packaging step deletes `Madeira.app/wine-mono`, and the app downloads it from WineHQ on first use (setup or Settings › .NET Framework, `app/Madeira/WineMono.swift`) | fetch + bundle run on the development machine 2026-10-05; not from a clean checkout |
 | A free Apple ID; StikDebug or a pairing file plus LocalDevVPN | signing and JIT runtime requirements | see `docs/JIT.md` | n/a |
 
@@ -88,14 +88,18 @@ calls the FFmpeg, FEX, DXMT, and iOS pairing library workflows, downloads their
 generated archives and required headers into the audit job, stages the two
 repository-owned license copies, then runs `bash build/preflight-macos.sh` on
 macOS with Xcode 26.3 selected. The audit checks the Xcode project and SDKs,
-pinned submodules, and the app's required libraries, resources, and licensed
-runtime inputs. When all source-built archives are available, the same job also
-compiles the Debug iOS app target without code signing. Because the Microsoft
-runtime DLLs are not supplied by CI, it creates only an empty placeholder for
-the referenced resource folder; it does not fabricate or fetch DLLs. This is a
-Debug and Release compile/link check only, and its app output is incomplete and
-not a validated sideload or runtime build. Missing licensed inputs remain
-listed as `PREFLIGHT BLOCKED` in the Actions step summary. No simulator or
+pinned submodules, and the app's required libraries and resources. It reports
+missing Microsoft runtime overrides separately from required build
+prerequisites: Wine ARM64EC built-ins remain the default, but app-specific
+runtime compatibility is not implied. When all source-built archives are
+available, the same job also compiles the Debug iOS app target without code
+signing. Because the Microsoft runtime DLLs are not supplied by CI, it creates
+only an empty placeholder for the referenced resource folder; it does not
+fabricate or fetch DLLs. This is a Debug and Release compile/link check only,
+and does not validate a sideload or
+runtime build. Missing optional overrides are reported as `PREFLIGHT
+INCOMPLETE`; missing required build prerequisites remain `PREFLIGHT BLOCKED`.
+No simulator or
 iPad launch is performed. The job also uploads Xcode linker maps for seven days
 to help trace warnings to contributing object files and libraries. The current
 Debug link map attributes the `__DATA,__common` symbols in the app debug dylib

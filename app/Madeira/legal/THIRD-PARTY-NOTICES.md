@@ -114,12 +114,13 @@ governed by that header.
 
 ## Microsoft Visual C++ runtime redistributables — NOT DISTRIBUTED
 
-Games built with MSVC require Microsoft's Visual C++ runtime DLLs. Those are
-Microsoft-authored binaries, redistributable only under the Visual Studio
-redistributable terms and only in unmodified form. They are **not** covered by
-this project's license and are **no longer tracked in this repository**;
-`app/Madeira/x86_64-vcruntime/*.dll` is gitignored and must be supplied locally.
-See `tools/fetch-vcruntime.md`.
+Some Windows programs need Microsoft's Visual C++ runtime DLLs for functions
+not implemented by Wine's ARM64EC built-ins. These Microsoft-authored binaries
+are **not** covered by this project's license and are **not tracked in this
+repository**. Madeira can use its built-ins without them; eligible optional
+overrides in `app/Madeira/x86_64-vcruntime/*.dll` must be obtained under
+Microsoft's redistribution terms and supplied unmodified. See
+`tools/fetch-vcruntime.md`.
 
 ### Earlier malformed copies were purged from history
 

@@ -210,14 +210,18 @@ VCRUNTIME_FILES=(
     "vcruntime140_1.dll"
     "vcruntime140_threads.dll"
 )
+OPTIONAL_VCRUNTIME_MISSING=0
 for name in "${VCRUNTIME_FILES[@]}"; do
     path="app/Madeira/x86_64-vcruntime/$name"
     if [[ -f "$path" ]]; then
-        pass "Microsoft runtime input exists: $path"
+        pass "Optional Microsoft runtime override exists: $path"
     else
-        block "Licensed Microsoft runtime input is missing: $path (obtain unmodified from Microsoft's x64 redistributable; see tools/fetch-vcruntime.md)."
+        OPTIONAL_VCRUNTIME_MISSING=$((OPTIONAL_VCRUNTIME_MISSING + 1))
     fi
 done
+if [[ "$OPTIONAL_VCRUNTIME_MISSING" -gt 0 ]]; then
+    note "$OPTIONAL_VCRUNTIME_MISSING optional Microsoft VC++ runtime override(s) are absent. This does not block compilation; Wine's bundled ARM64EC built-ins remain the default, but Windows-app runtime compatibility is not established. See tools/fetch-vcruntime.md."
+fi
 
 LICENSE_INPUTS=("COPYING" "LICENSE-EXCEPTION.md")
 for path in "${LICENSE_INPUTS[@]}"; do
@@ -260,9 +264,13 @@ note "Wine Mono is optional: its build phase intentionally omits it when unavail
 note "This audit does not build the app, sign it, launch a simulator, or prove runtime compatibility."
 
 if [[ "$BLOCKERS" -eq 0 ]]; then
-    RESULT="PREFLIGHT CLEAR — prerequisites checked; no app build was run."
+    if [[ "$OPTIONAL_VCRUNTIME_MISSING" -gt 0 ]]; then
+        RESULT="PREFLIGHT INCOMPLETE — required build prerequisites checked; $OPTIONAL_VCRUNTIME_MISSING optional Microsoft runtime override(s) absent; no app build was run and runtime compatibility remains unverified."
+    else
+        RESULT="PREFLIGHT CLEAR — prerequisites checked; no app build was run."
+    fi
 else
-    RESULT="PREFLIGHT BLOCKED — $BLOCKERS missing or unavailable prerequisite(s); no app build was run."
+    RESULT="PREFLIGHT BLOCKED — $BLOCKERS required build prerequisite(s) missing or unavailable; $OPTIONAL_VCRUNTIME_MISSING optional Microsoft runtime override(s) absent; no app build was run."
 fi
 printf '%s\n' "${REPORT[@]}"
 echo
@@ -277,7 +285,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     } >> "$GITHUB_STEP_SUMMARY"
 fi
 
-# Missing inputs are the expected result of an incomplete build checkout.
-# Keep the audit job green so its summary is visible; its explicit BLOCKED
-# status must not be mistaken for a successful app build.
+# Missing required inputs are expected in an incomplete build checkout. Keep
+# the audit job green so its summary is visible; neither CLEAR nor INCOMPLETE
+# means the app has been built, signed, or runtime-tested.
 exit 0

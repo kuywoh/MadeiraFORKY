@@ -112,7 +112,7 @@ jobs:
           STIKJIT_INSTALL_IN_APP: "1"
         run: bash build/stikjit-ios/build.sh
 
-      - name: Compile unsigned iOS app (Microsoft runtime files omitted)
+      - name: Compile unsigned iOS app (optional Microsoft runtime overrides omitted)
         id: compile-app
         if: ${{ needs.build-ffmpeg.result == 'success' && needs.build-pairing.result == 'success' && needs.build-fex.result == 'success' && needs.build-dxmt.result == 'success' && needs.build-wine-unix.result == 'success' && steps.build-stikjit.outcome == 'success' }}
         run: |
@@ -131,7 +131,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
-      - name: Compile unsigned iOS Release app (Microsoft runtime files omitted)
+      - name: Compile unsigned iOS Release app (optional Microsoft runtime overrides omitted)
         if: ${{ steps.compile-app.outcome == 'success' }}
         run: |
           set -euo pipefail
@@ -161,5 +161,5 @@ jobs:
             echo '### App compilation scope'
             echo
             echo 'The unsigned iOS target was compiled for source/link validation only.'
-            echo 'The Microsoft Visual C++ runtime DLLs were not included; the resulting app is incomplete and is not a validated sideload or runtime build.'
+            echo 'Optional Microsoft Visual C++ runtime overrides were not included; Wine ARM64EC built-ins remain in the app. This compile-only result does not establish app-specific runtime compatibility or validate a sideload.'
           } >> "$GITHUB_STEP_SUMMARY"
