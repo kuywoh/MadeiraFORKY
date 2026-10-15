@@ -93,11 +93,14 @@ runtime inputs. When all source-built archives are available, the same job also
 compiles the Debug iOS app target without code signing. Because the Microsoft
 runtime DLLs are not supplied by CI, it creates only an empty placeholder for
 the referenced resource folder; it does not fabricate or fetch DLLs. This is a
-compile/link check only, and its app output is incomplete and not a validated
-sideload or runtime build. Missing licensed inputs remain listed as
-`PREFLIGHT BLOCKED` in the Actions step summary. No simulator or iPad launch is
-performed. The job also uploads the Xcode linker map for seven days so linker
-warnings can be traced to contributing object files and libraries.
+Debug and Release compile/link check only, and its app output is incomplete and
+not a validated sideload or runtime build. Missing licensed inputs remain
+listed as `PREFLIGHT BLOCKED` in the Actions step summary. No simulator or
+iPad launch is performed. The job also uploads Xcode linker maps for seven days
+to help trace warnings to contributing object files and libraries. The current
+Debug link map attributes the `__DATA,__common` symbols in the app debug dylib
+to Xcode's `libPreviewsJITStubExecutor.a`; a Release build is included to check
+whether the alignment warning is limited to Debug/Previews linking.
 
 ### Rebuilding StikJIT for the selected Xcode toolchain
 
