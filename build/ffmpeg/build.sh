@@ -103,7 +103,7 @@ CONFIG_ARGS=(
     --ranlib="$(xcrun -sdk iphoneos -f ranlib)"
     --nm="$(xcrun -sdk iphoneos -f nm) -g"
     --strip="$(xcrun -sdk iphoneos -f strip)"
-    "--extra-cflags=$HOSTFLAGS -fno-stack-protector -fvisibility=hidden -O2"
+    "--extra-cflags=$HOSTFLAGS -fno-common -fno-stack-protector -fvisibility=hidden -O2"
     "--extra-ldflags=$HOSTFLAGS"
     --disable-gpl
     --disable-nonfree

@@ -92,6 +92,9 @@ ff = (root / "build/ffmpeg/build.sh").read_text().replace("\r\n", "\n")
 args = ff[ff.index("CONFIG_ARGS=("):]
 args = args[:args.index("\n)\n")]
 assert "--enable-demuxer=mp3,wav,mov" in args, "mov demuxer"
+assert re.search(
+    r'--extra-cflags=[^\n]*\s-fno-common(?:\s|"|$)', args
+), "Darwin FFmpeg build must avoid Xcode Clang common-symbol alignment warning"
 for flag in ["--disable-gpl", "--disable-nonfree", "--disable-version3", "--disable-everything"]:
     assert flag in args, ("LGPL-only configuration", flag)
 for bad in ["h264", "hevc", "aac"]:

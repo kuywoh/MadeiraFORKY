@@ -163,6 +163,12 @@ can also be started manually from GitHub Actions. It does not build the full
 app or commit generated files. A separate log artifact is retained even if
 the build fails.
 
+The Darwin FFmpeg compile explicitly uses `-fno-common`. Apple's Clang still
+defaults to `-fcommon`, which can make large uninitialized globals inflate the
+Mach-O `__DATA,__common` alignment and trigger an `ld` alignment-reduction
+warning. Upstream FFmpeg added this flag for Darwin for the same Xcode linker
+warning ([upstream change](https://ffmpeg.org/pipermail/ffmpeg-cvslog/2025-May/148334.html)).
+
 The `Build Madeira iOS pairing library` workflow can also be started manually.
 It builds the locked Rust crate for iOS arm64, verifies the archive architecture,
 checks that its generated third-party notices match the tracked copy, and uploads
