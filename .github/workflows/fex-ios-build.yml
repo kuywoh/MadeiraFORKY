@@ -56,6 +56,14 @@ jobs:
             shasum -a 256 "$library"
           done
 
+          generated_headers=(
+            FEX/build-ios/include/FEXCore/Config/ConfigValues.inl
+            FEX/build-ios/include/FEXCore/Config/ConfigOptions.inl
+          )
+          for header in "${generated_headers[@]}"; do
+            test -s "$header"
+          done
+
       - name: Upload FEX iOS archives
         uses: actions/upload-artifact@v4
         with:
@@ -67,5 +75,7 @@ jobs:
             FEX/build-ios/External/cephes/libcephes_128bit.a
             FEX/build-ios/External/xxhash/cmake_unofficial/libxxhash.a
             FEX/build-ios/External/SoftFloat-3e/libsoftfloat_3e.a
+            FEX/build-ios/include/FEXCore/Config/ConfigValues.inl
+            FEX/build-ios/include/FEXCore/Config/ConfigOptions.inl
           if-no-files-found: error
           retention-days: 14
