@@ -110,6 +110,19 @@ Debug link map attributes the `__DATA,__common` symbols in the app debug dylib
 to Xcode's `libPreviewsJITStubExecutor.a`; a Release build is included to check
 whether the alignment warning is limited to Debug/Previews linking.
 
+### Roblox Studio import-coverage observation
+
+The read-only PE inventory in `docs/ROBLOX_STUDIO_COMPATIBILITY.md` found that
+the inspected Studio executable directly imports
+`MFCreateVideoSampleFromSurface` from `EVR.dll`. The app's ARM64EC Wine module
+farm did not contain `evr.dll`, although the pinned Wine source provides that
+module and export. CI is configured to build Wine's open-source EVR module and
+its Wine DXVA2 dependency, verify their ARM64EC PE machine type and EVR's
+export, and check that both are included in the unsigned IPA. This closes only
+a static module-presence gap. It does not prove that EVR's implementation is
+complete, that Studio loads successfully, or that video/rendering works on
+iPadOS; those require device testing.
+
 ### Rebuilding StikJIT for the selected Xcode toolchain
 
 The checked-in StikJIT 1.9.0 XCFramework was emitted by Swift 6.4, while the

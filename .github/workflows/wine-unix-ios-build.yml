@@ -79,7 +79,24 @@ jobs:
       - name: Generate ARM64EC DWrite headers
         env:
           DEST: ${{ runner.temp }}/wine-pe
-        run: bash build/wine-pe/build-modules.sh dwrite
+        run: bash build/wine-pe/build-modules.sh dwrite dxva2 evr
+
+      - name: Stage Wine EVR module for the app artifact
+        run: |
+          set -euo pipefail
+          EVR_DLL="$RUNNER_TEMP/wine-pe/evr.dll"
+          DXVA2_DLL="$RUNNER_TEMP/wine-pe/dxva2.dll"
+          test -s "$EVR_DLL"
+          test -s "$DXVA2_DLL"
+          llvm-readobj --file-headers --coff-exports "$EVR_DLL" > "$RUNNER_TEMP/evr-readobj.txt"
+          llvm-readobj --file-headers --coff-exports "$DXVA2_DLL" > "$RUNNER_TEMP/dxva2-readobj.txt"
+          grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: 0xA641' "$RUNNER_TEMP/evr-readobj.txt"
+          grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: 0xA641' "$RUNNER_TEMP/dxva2-readobj.txt"
+          grep -Fq 'MFCreateVideoSampleFromSurface' "$RUNNER_TEMP/evr-readobj.txt"
+          mkdir -p app/Madeira/arm64ec-windows
+          cp "$EVR_DLL" app/Madeira/arm64ec-windows/evr.dll
+          cp "$DXVA2_DLL" app/Madeira/arm64ec-windows/dxva2.dll
+          echo 'Verified Wine EVR and DXVA2 are ARM64EC PEs; EVR exports MFCreateVideoSampleFromSurface.'
 
       - name: Build iOS FreeType library
         run: bash build/freetype-ios/build.sh
@@ -115,5 +132,7 @@ jobs:
             app/Madeira/libntdll_unix.a
             app/Madeira/libwin32u_unix.a
             app/Madeira/libwineserver.a
+            app/Madeira/arm64ec-windows/dxva2.dll
+            app/Madeira/arm64ec-windows/evr.dll
           if-no-files-found: ignore
           retention-days: 14
