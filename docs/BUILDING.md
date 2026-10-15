@@ -96,7 +96,8 @@ the referenced resource folder; it does not fabricate or fetch DLLs. This is a
 compile/link check only, and its app output is incomplete and not a validated
 sideload or runtime build. Missing licensed inputs remain listed as
 `PREFLIGHT BLOCKED` in the Actions step summary. No simulator or iPad launch is
-performed.
+performed. The job also uploads the Xcode linker map for seven days so linker
+warnings can be traced to contributing object files and libraries.
 
 ### Rebuilding StikJIT for the selected Xcode toolchain
 
