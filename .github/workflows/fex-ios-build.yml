@@ -19,8 +19,18 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Initialize FEX and its nested submodules
-        run: git submodule update --init --recursive FEX
+      - name: Initialize FEX and only its iOS FEXCore dependencies
+        run: |
+          set -euo pipefail
+          git submodule update --init FEX
+          # This job builds FEXCore with tests, VIXL diagnostics, Zydis,
+          # rpmalloc, and the full FEX runtime disabled. Avoid cloning the
+          # unrelated guest-test binary submodules and optional tool deps.
+          git -C FEX submodule update --init --recursive \
+            External/fmt \
+            External/range-v3 \
+            External/unordered_dense \
+            External/xxhash
 
       - name: Select Xcode with iOS SDK support
         uses: maxim-lobanov/setup-xcode@v1
@@ -33,7 +43,12 @@ jobs:
           xcodebuild -version
           cmake --version
           xcrun --sdk iphoneos --show-sdk-version
-          git submodule status --recursive FEX
+          git submodule status FEX
+          git -C FEX submodule status --recursive \
+            External/fmt \
+            External/range-v3 \
+            External/unordered_dense \
+            External/xxhash
 
       - name: Build FEXCore iOS archives
         run: bash build/fex-ios/build.sh
