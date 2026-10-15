@@ -76,27 +76,33 @@ jobs:
           done
           make -C wine/build-macos/server -j"$JOBS"
 
-      - name: Generate ARM64EC DWrite headers
+      - name: Build ARM64EC API-set schema, DWrite, DXVA2, and EVR modules
         env:
           DEST: ${{ runner.temp }}/wine-pe
-        run: bash build/wine-pe/build-modules.sh dwrite dxva2 evr
+        run: bash build/wine-pe/build-modules.sh apisetschema dwrite dxva2 evr
 
-      - name: Stage Wine EVR module for the app artifact
+      - name: Stage Wine API-set schema and EVR modules for the app artifact
         run: |
           set -euo pipefail
+          APISET_DLL="$RUNNER_TEMP/wine-pe/apisetschema.dll"
           EVR_DLL="$RUNNER_TEMP/wine-pe/evr.dll"
           DXVA2_DLL="$RUNNER_TEMP/wine-pe/dxva2.dll"
+          test -s "$APISET_DLL"
           test -s "$EVR_DLL"
           test -s "$DXVA2_DLL"
+          llvm-readobj --file-headers --sections "$APISET_DLL" > "$RUNNER_TEMP/apisetschema-readobj.txt"
           llvm-readobj --file-headers --coff-exports "$EVR_DLL" > "$RUNNER_TEMP/evr-readobj.txt"
           llvm-readobj --file-headers --coff-exports "$DXVA2_DLL" > "$RUNNER_TEMP/dxva2-readobj.txt"
+          grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: 0xA641' "$RUNNER_TEMP/apisetschema-readobj.txt"
+          grep -Fq '.apiset' "$RUNNER_TEMP/apisetschema-readobj.txt"
           grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: 0xA641' "$RUNNER_TEMP/evr-readobj.txt"
           grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: 0xA641' "$RUNNER_TEMP/dxva2-readobj.txt"
           grep -Fq 'MFCreateVideoSampleFromSurface' "$RUNNER_TEMP/evr-readobj.txt"
           mkdir -p app/Madeira/arm64ec-windows
+          cp "$APISET_DLL" app/Madeira/arm64ec-windows/apisetschema.dll
           cp "$EVR_DLL" app/Madeira/arm64ec-windows/evr.dll
           cp "$DXVA2_DLL" app/Madeira/arm64ec-windows/dxva2.dll
-          echo 'Verified Wine EVR and DXVA2 are ARM64EC PEs; EVR exports MFCreateVideoSampleFromSurface.'
+          echo 'Verified Wine API-set schema, EVR, and DXVA2 are ARM64EC PEs; schema has .apiset and EVR exports MFCreateVideoSampleFromSurface.'
 
       - name: Build iOS FreeType library
         run: bash build/freetype-ios/build.sh
@@ -134,5 +140,6 @@ jobs:
             app/Madeira/libwineserver.a
             app/Madeira/arm64ec-windows/dxva2.dll
             app/Madeira/arm64ec-windows/evr.dll
+            app/Madeira/arm64ec-windows/apisetschema.dll
           if-no-files-found: ignore
           retention-days: 14

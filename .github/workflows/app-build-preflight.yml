@@ -84,14 +84,16 @@ jobs:
           name: wine-unix-ios-arm64
           path: app/Madeira
 
-      - name: Verify Wine EVR module arrived in the app resources
+      - name: Verify Wine API-set schema and EVR modules arrived in app resources
         if: ${{ needs.build-wine-unix.result == 'success' }}
         run: |
           set -euo pipefail
+          APISET_DLL=app/Madeira/arm64ec-windows/apisetschema.dll
           test -s app/Madeira/arm64ec-windows/dxva2.dll
           EVR_DLL=app/Madeira/arm64ec-windows/evr.dll
           test -s "$EVR_DLL"
-          echo 'Verified the ARM64EC EVR and DXVA2 modules arrived in Madeira app resources.'
+          test -s "$APISET_DLL"
+          echo 'Verified the ARM64EC API-set schema, EVR, and DXVA2 modules arrived in Madeira app resources; PE metadata was checked in the producer job.'
 
       - name: Stage bundled license copies
         run: bash build/stage-licenses.sh
@@ -158,7 +160,8 @@ jobs:
             'Payload/Madeira.app/PlugIns/MadeiraJITHelper.appex/Info.plist' \
             'Payload/Madeira.app/Frameworks/StikJITSDK.framework/StikJITSDK' \
             'Payload/Madeira.app/arm64ec-windows/dxva2.dll' \
-            'Payload/Madeira.app/arm64ec-windows/evr.dll'; do
+            'Payload/Madeira.app/arm64ec-windows/evr.dll' \
+            'Payload/Madeira.app/arm64ec-windows/apisetschema.dll'; do
             if ! grep -Fxq "$required_entry" <<< "$IPA_ENTRIES"; then
               echo "error: IPA is missing required app/JIT entry: $required_entry" >&2
               exit 1

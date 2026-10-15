@@ -163,6 +163,7 @@ REQUIRED_FILES=(
     "app/Madeira/libavutil.a"
     "app/Madeira/arm64ec-windows/dxva2.dll"
     "app/Madeira/arm64ec-windows/evr.dll"
+    "app/Madeira/arm64ec-windows/apisetschema.dll"
     "app/Madeira/d3d12/libmetalirconverter.dylib"
     "app/Madeira/prefix-template.tar.gz"
     "app/Frameworks/StikJIT.xcframework/Info.plist"

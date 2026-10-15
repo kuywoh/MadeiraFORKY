@@ -46,6 +46,27 @@ unsigned IPA contains both.
 import closure for an installed Studio version, and whether Studio successfully
 starts. Wine source presence and a matching export do not prove API behavior.
 
+## API-set schema prerequisite
+
+**Verified:** Madeira's iOS loader maps `apisetschema.dll` from the selected PE
+architecture directory to populate the process API-set map. Its ARM64EC path
+therefore needs `app/Madeira/arm64ec-windows/apisetschema.dll`; the module farm
+did not contain that file in the inspected checkout. The inspected Studio PE
+imports API-set contract DLL names, which Wine resolves through this schema
+instead of by shipping a separate DLL for every contract.
+
+**Verified:** The pinned Wine source builds `apisetschema.dll` as a data-only PE
+with a `.apiset` section. Wine's resolver hashes the contract prefix through
+the final version-independent segment, allowing a contract such as
+`api-ms-win-core-winrt-string-l1-1-0` to use the schema's `...-l1-1-1` mapping
+to `combase.dll`.
+
+**Change made:** CI builds Wine's ARM64EC schema, checks its PE machine type
+and `.apiset` section, stages it with the ARM64EC DLL farm, and verifies that
+the unsigned IPA contains it. This proves the required schema resource is
+packaged, not that all imported API-set functions are implemented or that
+Studio starts.
+
 ## Overall assessment
 
 This is a useful loader-compatibility improvement, not a Studio port or a
