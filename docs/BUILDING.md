@@ -100,10 +100,11 @@ and does not validate a sideload or
 runtime build. CI packages the compiled Debug app as an unsigned `.ipa` ZIP
 artifact for later sideloading experiments; the sideloader must sign it before
 installation. The artifact does not prove the app launches, has working JIT,
-or can run Roblox Studio. Missing optional overrides are reported as `PREFLIGHT
-INCOMPLETE`; missing required build prerequisites remain `PREFLIGHT BLOCKED`.
-No simulator or
-iPad launch is performed. The job also uploads Xcode linker maps for seven days
+or can run Roblox Studio. CI checks that the package contains the app
+executable, the embedded JIT helper and its StikJIT framework. Missing optional
+overrides are reported as `PREFLIGHT INCOMPLETE`; missing required build
+prerequisites remain `PREFLIGHT BLOCKED`. No simulator or iPad launch is
+performed. The job also uploads Xcode linker maps for seven days
 to help trace warnings to contributing object files and libraries. The current
 Debug link map attributes the `__DATA,__common` symbols in the app debug dylib
 to Xcode's `libPreviewsJITStubExecutor.a`; a Release build is included to check
