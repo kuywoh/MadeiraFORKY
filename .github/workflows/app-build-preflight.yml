@@ -131,6 +131,29 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
+      - name: Package unsigned Debug IPA (requires sideloader signing)
+        if: ${{ steps.compile-app.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          APP_PATH="$RUNNER_TEMP/MadeiraDerivedData/Build/Products/Debug-iphoneos/Madeira.app"
+          PACKAGE_DIR="$RUNNER_TEMP/MadeiraIPAPackage"
+          IPA_PATH="$RUNNER_TEMP/Madeira-unsigned-debug.ipa"
+          test -d "$APP_PATH"
+          mkdir -p "$PACKAGE_DIR/Payload"
+          ditto "$APP_PATH" "$PACKAGE_DIR/Payload/Madeira.app"
+          (cd "$PACKAGE_DIR" && ditto -c -k --sequesterRsrc --keepParent Payload "$IPA_PATH")
+          unzip -Z1 "$IPA_PATH" | grep -Fx 'Payload/Madeira.app/Info.plist'
+          echo 'Created an unsigned Debug IPA package. It is not directly installable; a sideloader must sign it, and device/JIT compatibility is unverified.'
+
+      - name: Upload unsigned Debug IPA for sideloading experiments
+        if: ${{ steps.compile-app.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: madeira-unsigned-debug-ipa
+          path: ${{ runner.temp }}/Madeira-unsigned-debug.ipa
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Compile unsigned iOS Release app (optional Microsoft runtime overrides omitted)
         if: ${{ steps.compile-app.outcome == 'success' }}
         run: |
@@ -160,6 +183,6 @@ jobs:
           {
             echo '### App compilation scope'
             echo
-            echo 'The unsigned iOS target was compiled for source/link validation only.'
+            echo 'The unsigned iOS target was compiled for source/link validation only. A Debug .ipa ZIP package is uploaded as a short-lived artifact; it is unsigned and is not directly installable until a sideloader signs it.'
             echo 'Optional Microsoft Visual C++ runtime overrides were not included; Wine ARM64EC built-ins remain in the app. This compile-only result does not establish app-specific runtime compatibility or validate a sideload.'
           } >> "$GITHUB_STEP_SUMMARY"

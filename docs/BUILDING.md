@@ -97,7 +97,10 @@ signing. Because the Microsoft runtime DLLs are not supplied by CI, it creates
 only an empty placeholder for the referenced resource folder; it does not
 fabricate or fetch DLLs. This is a Debug and Release compile/link check only,
 and does not validate a sideload or
-runtime build. Missing optional overrides are reported as `PREFLIGHT
+runtime build. CI packages the compiled Debug app as an unsigned `.ipa` ZIP
+artifact for later sideloading experiments; the sideloader must sign it before
+installation. The artifact does not prove the app launches, has working JIT,
+or can run Roblox Studio. Missing optional overrides are reported as `PREFLIGHT
 INCOMPLETE`; missing required build prerequisites remain `PREFLIGHT BLOCKED`.
 No simulator or
 iPad launch is performed. The job also uploads Xcode linker maps for seven days
