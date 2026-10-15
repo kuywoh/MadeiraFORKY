@@ -128,7 +128,6 @@ jobs:
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/MadeiraDerivedData" \
             LD_GENERATE_MAP_FILE=YES \
-            LD_MAP_FILE_PATH="$RUNNER_TEMP/Madeira-LinkMap.txt" \
             CODE_SIGNING_ALLOWED=NO \
             build
 
@@ -137,7 +136,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: madeira-ios-link-map
-          path: ${{ runner.temp }}/Madeira-LinkMap.txt
+          path: ${{ runner.temp }}/MadeiraDerivedData/Build/Intermediates.noindex/**/*LinkMap*.txt
           if-no-files-found: warn
           retention-days: 7
 
