@@ -61,11 +61,12 @@ the final version-independent segment, allowing a contract such as
 `api-ms-win-core-winrt-string-l1-1-0` to use the schema's `...-l1-1-1` mapping
 to `combase.dll`.
 
-**Change made:** CI builds Wine's ARM64EC schema, checks its PE machine type
-and `.apiset` section, stages it with the ARM64EC DLL farm, and verifies that
-the unsigned IPA contains it. This proves the required schema resource is
-packaged, not that all imported API-set functions are implemented or that
-Studio starts.
+**Change made:** CI builds Wine's API-set schema from the ARM64EC build tree,
+checks the data-only PE's `.apiset` section, stages it in the ARM64EC DLL farm,
+and verifies that the unsigned IPA contains it. The schema is mapped as data,
+not executed, so its PE machine label is not used as an architecture check.
+This proves the required schema resource is packaged, not that all imported
+API-set functions are implemented or that Studio starts.
 
 ## Overall assessment
 

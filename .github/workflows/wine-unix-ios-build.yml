@@ -93,7 +93,6 @@ jobs:
           llvm-readobj --file-headers --sections "$APISET_DLL" > "$RUNNER_TEMP/apisetschema-readobj.txt"
           llvm-readobj --file-headers --coff-exports "$EVR_DLL" > "$RUNNER_TEMP/evr-readobj.txt"
           llvm-readobj --file-headers --coff-exports "$DXVA2_DLL" > "$RUNNER_TEMP/dxva2-readobj.txt"
-          grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: 0xA641' "$RUNNER_TEMP/apisetschema-readobj.txt"
           grep -Fq '.apiset' "$RUNNER_TEMP/apisetschema-readobj.txt"
           grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: 0xA641' "$RUNNER_TEMP/evr-readobj.txt"
           grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: 0xA641' "$RUNNER_TEMP/dxva2-readobj.txt"
@@ -102,7 +101,7 @@ jobs:
           cp "$APISET_DLL" app/Madeira/arm64ec-windows/apisetschema.dll
           cp "$EVR_DLL" app/Madeira/arm64ec-windows/evr.dll
           cp "$DXVA2_DLL" app/Madeira/arm64ec-windows/dxva2.dll
-          echo 'Verified Wine API-set schema, EVR, and DXVA2 are ARM64EC PEs; schema has .apiset and EVR exports MFCreateVideoSampleFromSurface.'
+          echo 'Verified Wine API-set schema has a .apiset section; EVR and DXVA2 are ARM64EC PEs, and EVR exports MFCreateVideoSampleFromSurface.'
 
       - name: Build iOS FreeType library
         run: bash build/freetype-ios/build.sh

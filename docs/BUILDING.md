@@ -125,9 +125,10 @@ iPadOS; those require device testing.
 
 The workflow also builds and packages Wine's ARM64EC `apisetschema.dll`. The
 iOS loader reads this data-only PE to resolve Windows API-set contract imports;
-CI verifies its ARM64EC machine type and `.apiset` section and checks that it
-is present in the IPA. This checks packaging and schema availability only,
-not completeness of every API implementation.
+CI verifies its `.apiset` section and checks that it is present in the IPA.
+Because the loader maps this file as data rather than executing it, its PE
+machine label is not an architecture gate. This checks packaging and schema
+availability only, not completeness of every API implementation.
 
 ### Rebuilding StikJIT for the selected Xcode toolchain
 
