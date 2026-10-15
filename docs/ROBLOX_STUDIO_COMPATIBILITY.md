@@ -61,6 +61,15 @@ the final version-independent segment, allowing a contract such as
 `api-ms-win-core-winrt-string-l1-1-0` to use the schema's `...-l1-1-1` mapping
 to `combase.dll`.
 
+**Verified:** A name-only crosswalk of the inspected executable found 55
+distinct direct-import DLL names. All 14 API-set contracts have matching
+version-independent entries in the pinned Wine schema; a portable host check
+now guards that mapping for this inspected Studio build. Of the other 41
+names, 40 occur in either the Studio installation inventory or Madeira's
+ARM64EC module farm; EVR was the lone missing name and is now built from Wine
+source together with its `dxva2.dll` dependency. Presence in an installer or
+module farm does not prove runtime loading or correct API behavior.
+
 **Change made:** CI builds Wine's API-set schema from the ARM64EC build tree,
 checks the data-only PE's `.apiset` section, stages it in the ARM64EC DLL farm,
 and verifies that the unsigned IPA contains it. The schema is mapped as data,

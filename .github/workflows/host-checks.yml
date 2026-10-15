@@ -55,6 +55,7 @@ jobs:
             check-library-groups.py
             check-library-sections.py
             check-d3d12-tiled.py
+            check-studio-apiset-coverage.py
           )
 
           for test in "${tests[@]}"; do
