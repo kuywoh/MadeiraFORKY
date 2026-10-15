@@ -215,8 +215,8 @@ done
 
 echo ""
 echo "=== Renaming colliding symbols in every .o (objcopy sweep) ==="
-# Renames internal-to-archive: extract every .o, rename the 10 symbols
-# we know collide with win32u-unix, repackage. Affects definitions AND
+# Renames internal-to-archive: extract every .o, rename the symbols
+# we know collide across the statically combined Wine components, repackage. Affects definitions AND
 # references uniformly, so cross-file calls inside wineserver still
 # resolve. Externals (win32u, etc.) only see the ws_-prefixed names.
 OBJCOPY=$(command -v llvm-objcopy || echo /opt/homebrew/opt/llvm/bin/llvm-objcopy)
@@ -246,6 +246,11 @@ COLLISIONS=(
     # every process hung in server_init_process() the moment a client
     # connected -- guest ntdll init is exactly when the pointer was stolen.
     user_shared_data
+    # The iOS app links ntdll-unix and wineserver into one process. These
+    # globals represent separate client/server state in upstream Wine, but
+    # common-symbol merging aliases them in the app binary. Keep the server's
+    # copy private to the wineserver objects (including registry/request code).
+    supported_machines_count supported_machines native_machine server_start_time
 )
 RENAME_ARGS=()
 for s in "${COLLISIONS[@]}"; do
