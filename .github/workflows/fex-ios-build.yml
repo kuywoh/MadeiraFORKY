@@ -9,9 +9,9 @@ permissions:
 
 jobs:
   fex-ios:
-    name: Build FEX static libraries (iOS arm64)
+    name: Build FEX iOS libraries and ARM64EC runtime
     runs-on: macos-15
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       CMAKE_BUILD_PARALLEL_LEVEL: 3
 
@@ -30,7 +30,13 @@ jobs:
             External/fmt \
             External/range-v3 \
             External/unordered_dense \
-            External/xxhash
+            External/xxhash \
+            External/rpmalloc \
+            External/jemalloc_glibc \
+            Source/Common/cpp-optparse
+
+      - name: Apply Madeira ARM64EC exception-stack fix
+        run: git -C FEX apply ../patches/fex/0001-guard-invalid-guest-rsp-during-exception-handoff.patch
 
       - name: Select Xcode with iOS SDK support
         uses: maxim-lobanov/setup-xcode@v1
@@ -52,6 +58,29 @@ jobs:
 
       - name: Build FEXCore iOS archives
         run: bash build/fex-ios/build.sh
+
+      - name: Install checksum-pinned llvm-mingw for ARM64EC FEX
+        run: |
+          set -euo pipefail
+          mkdir -p toolchains
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/llvm-mingw.tar.xz" \
+            https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-macos-universal.tar.xz
+          echo "bd85a3975723815cef28dbbd2ca2cb0c926f6b348a12a0453f39f7af273cb3f7  $RUNNER_TEMP/llvm-mingw.tar.xz" | shasum -a 256 --check
+          tar -xJf "$RUNNER_TEMP/llvm-mingw.tar.xz" -C toolchains
+          echo "$GITHUB_WORKSPACE/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin" >> "$GITHUB_PATH"
+
+      - name: Build FEX ARM64EC runtime DLL used by Studio
+        run: bash build/fex-arm64ec/build.sh
+
+      - name: Verify ARM64EC runtime DLL
+        run: |
+          set -euo pipefail
+          DLL=app/Madeira/arm64ec-windows/xtajit64.dll
+          test -s "$DLL"
+          toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin/llvm-readobj --file-headers "$DLL" | tee "$RUNNER_TEMP/xtajit64-headers.txt"
+          grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: IMAGE_FILE_MACHINE_ARM64X' "$RUNNER_TEMP/xtajit64-headers.txt"
+          shasum -a 256 "$DLL"
 
       - name: Verify all required iOS arm64 archives
         run: |
@@ -94,5 +123,13 @@ jobs:
             FEX/build-ios/External/SoftFloat-3e/libsoftfloat_3e.a
             FEX/build-ios/include/FEXCore/Config/ConfigValues.inl
             FEX/build-ios/include/FEXCore/Config/ConfigOptions.inl
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload rebuilt ARM64EC FEX runtime DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: fex-arm64ec-runtime
+          path: app/Madeira/arm64ec-windows/xtajit64.dll
           if-no-files-found: error
           retention-days: 14

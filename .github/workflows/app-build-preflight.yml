@@ -69,6 +69,13 @@ jobs:
           name: fex-ios-arm64
           path: FEX/build-ios
 
+      - name: Download rebuilt ARM64EC FEX runtime DLL
+        if: ${{ needs.build-fex.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: fex-arm64ec-runtime
+          path: app/Madeira/arm64ec-windows
+
       - name: Download DXMT iOS library from this workflow run
         if: ${{ needs.build-dxmt.result == 'success' }}
         uses: actions/download-artifact@v4
@@ -157,6 +164,7 @@ jobs:
           for required_entry in \
             'Payload/Madeira.app/Info.plist' \
             'Payload/Madeira.app/Madeira' \
+            'Payload/Madeira.app/arm64ec-windows/xtajit64.dll' \
             'Payload/Madeira.app/PlugIns/MadeiraJITHelper.appex/Info.plist' \
             'Payload/Madeira.app/Frameworks/StikJITSDK.framework/StikJITSDK' \
             'Payload/Madeira.app/arm64ec-windows/dxva2.dll' \

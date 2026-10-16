@@ -1,0 +1,23 @@
+diff --git a/Source/Windows/ARM64EC/Module.cpp b/Source/Windows/ARM64EC/Module.cpp
+index fbaf76f11..000000000 100644
+--- a/Source/Windows/ARM64EC/Module.cpp
++++ b/Source/Windows/ARM64EC/Module.cpp
+@@ -659,4 +659,18 @@ static void RethrowGuestException(const EXCEPTION_RECORD& Rec, ARM64_NT_CONTEXT& Context) {
+   auto* Thread = GetCPUArea().ThreadState();
+   auto& Fault = Thread->CurrentFrame->SynchronousFaultData;
+   uint64_t GuestSp = Context.X[Config.SRAGPRMapping[static_cast<size_t>(FEXCore::X86State::REG_RSP)]];
++  /* An iOS Mach exception can arrive with the ARM64EC guest RSP SRA register
++   * unset (observed as x23 == 0 while the native exception SP remains valid).
++   * Do not derive the exception-dispatch scratch area from that invalid guest
++   * pointer: doing so wraps below address zero and can fault while we are
++   * already handling the original guest exception. Use the interrupted native
++   * SP for the temporary handoff in this exceptional case. The packed guest
++   * CONTEXT still retains its actual RSP, so this is containment/diagnostic
++   * safety, not a repair for the upstream guest-register corruption. */
++  if (GuestSp < sizeof(KiUserExceptionDispatcherStackLayout)) {
++    LogMan::Msg::EFmt("[exc-invalid-rsp] guest RSP {:#x} at ARM PC {:#x}; "
++                      "using native exception SP {:#x} for dispatch handoff",
++                      GuestSp, Context.Pc, Context.Sp);
++    GuestSp = Context.Sp;
++  }
+   auto* Args = reinterpret_cast<KiUserExceptionDispatcherStackLayout*>(FEXCore::AlignDown(GuestSp, 64)) - 1;
