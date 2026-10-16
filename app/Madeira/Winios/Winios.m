@@ -23,6 +23,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 #import <Metal/Metal.h>
 #import <os/log.h>
+#include <errno.h>
 #include <stdarg.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -31,10 +32,120 @@
 #include <sys/time.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <string.h>
+#include <time.h>
 
 /* The window census struct is shared with Swift through this header;
  * including it here keeps both sides' definitions the same. */
 #include "Winios.h"
+
+/* Studio browser authentication is a single in-flight request. Keep the
+ * expected state and callback only in memory; never put OAuth URLs in logs. */
+static pthread_mutex_t winios_auth_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t winios_auth_cond = PTHREAD_COND_INITIALIZER;
+static int winios_auth_pending;
+static int winios_auth_finished;
+static int winios_auth_opened;
+static char winios_auth_state[1024];
+static char winios_auth_callback[16384];
+
+int winios_receive_auth_callback(const char *url_string)
+{
+    @autoreleasepool {
+        if (!url_string) return 0;
+        NSString *url_text = [NSString stringWithUTF8String:url_string];
+        if (!url_text) return 0;
+        NSURLComponents *parts = [NSURLComponents componentsWithString:url_text];
+        if (![[parts.scheme lowercaseString] isEqualToString:@"roblox-studio-auth"]) return 0;
+
+        NSString *state = nil;
+        for (NSURLQueryItem *item in parts.queryItems)
+            if ([item.name isEqualToString:@"state"]) { state = item.value; break; }
+        const char *state_utf8 = state.UTF8String;
+        pthread_mutex_lock(&winios_auth_lock);
+        int accepted = winios_auth_pending && state_utf8 &&
+            !strcmp(state_utf8, winios_auth_state) && strlen(url_string) < sizeof(winios_auth_callback);
+        if (accepted)
+        {
+            strcpy(winios_auth_callback, url_string);
+            winios_auth_finished = 1;
+            pthread_cond_broadcast(&winios_auth_cond);
+        }
+        pthread_mutex_unlock(&winios_auth_lock);
+        return accepted;
+    }
+}
+
+int winios_open_external_url(const char *url_string, char *callback_buffer, unsigned long callback_capacity)
+{
+    @autoreleasepool {
+        if (!url_string || !callback_buffer || callback_capacity < 2) return -1;
+        callback_buffer[0] = '\0';
+        NSString *url_text = [NSString stringWithUTF8String:url_string];
+        if (!url_text) return -1;
+        NSURLComponents *parts = [NSURLComponents componentsWithString:url_text];
+        NSString *scheme = parts.scheme.lowercaseString;
+        if (![scheme isEqualToString:@"https"] && ![scheme isEqualToString:@"http"]) return -1;
+
+        NSString *expected_state = nil;
+        BOOL needs_callback = NO;
+        for (NSURLQueryItem *item in parts.queryItems)
+        {
+            if ([item.name isEqualToString:@"state"]) expected_state = item.value;
+            if ([item.name isEqualToString:@"redirect_uri"] &&
+                [item.value.lowercaseString hasPrefix:@"roblox-studio-auth:"]) needs_callback = YES;
+        }
+        const char *state_utf8 = expected_state.UTF8String;
+        if (needs_callback && (!state_utf8 || strlen(state_utf8) >= sizeof(winios_auth_state))) return -1;
+
+        pthread_mutex_lock(&winios_auth_lock);
+        if (winios_auth_pending) { pthread_mutex_unlock(&winios_auth_lock); return -1; }
+        winios_auth_pending = needs_callback;
+        winios_auth_finished = 0;
+        winios_auth_opened = 0;
+        winios_auth_callback[0] = '\0';
+        winios_auth_state[0] = '\0';
+        if (needs_callback) strcpy(winios_auth_state, state_utf8);
+        pthread_mutex_unlock(&winios_auth_lock);
+
+        dispatch_semaphore_t opened = dispatch_semaphore_create(0);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [[UIApplication sharedApplication] openURL:[NSURL URLWithString:url_text]
+                                               options:@{}
+                                     completionHandler:^(BOOL success) {
+                pthread_mutex_lock(&winios_auth_lock);
+                winios_auth_opened = success;
+                if (!success && winios_auth_pending) winios_auth_finished = 1;
+                pthread_cond_broadcast(&winios_auth_cond);
+                pthread_mutex_unlock(&winios_auth_lock);
+                dispatch_semaphore_signal(opened);
+            }];
+        });
+        dispatch_semaphore_wait(opened, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC));
+
+        pthread_mutex_lock(&winios_auth_lock);
+        if (needs_callback && winios_auth_opened)
+        {
+            struct timespec deadline;
+            clock_gettime(CLOCK_REALTIME, &deadline);
+            deadline.tv_sec += 300;
+            while (!winios_auth_finished)
+                if (pthread_cond_timedwait(&winios_auth_cond, &winios_auth_lock, &deadline) == ETIMEDOUT) break;
+        }
+        int success = winios_auth_opened && (!needs_callback || winios_auth_finished) &&
+            (!needs_callback || winios_auth_callback[0]);
+        if (success && needs_callback && strlen(winios_auth_callback) < callback_capacity)
+            strcpy(callback_buffer, winios_auth_callback);
+        else if (success && needs_callback) success = 0;
+        winios_auth_pending = 0;
+        winios_auth_finished = 0;
+        winios_auth_opened = 0;
+        winios_auth_state[0] = '\0';
+        winios_auth_callback[0] = '\0';
+        pthread_mutex_unlock(&winios_auth_lock);
+        return success ? 0 : -1;
+    }
+}
 
 /* csops syscall — CS_DEBUGGED is the flag StikDebug JIT rides on. Declared by
  * hand for the same reason JITAllocator.c does: <sys/codesign.h> is not in the

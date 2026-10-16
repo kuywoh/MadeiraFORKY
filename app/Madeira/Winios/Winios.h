@@ -31,6 +31,13 @@ extern "C" {
  * Idempotent: safe to call repeatedly; first call wins. */
 void winios_drv_register(void);
 
+/* iOS browser bridge used by Wine's winebrowser. It opens http(s) URLs with
+ * the system browser and, for Roblox Studio OAuth URLs, waits for the
+ * roblox-studio-auth callback with the same state. Callback data stays in
+ * memory and is returned through callback_buffer. Returns 0 on success. */
+int winios_open_external_url(const char *url, char *callback_buffer, unsigned long callback_capacity);
+int winios_receive_auth_callback(const char *url);
+
 /* Touch → mouse bridge. Called by Madeira Swift's UIKit gesture
  * handlers; events are queued to a thread-safe ring buffer and drained
  * inside winios_pProcessEvents. (x, y) are in logical 1024×768 pixels

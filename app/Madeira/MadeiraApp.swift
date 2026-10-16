@@ -19,7 +19,12 @@ struct MadeiraApp: App {
                 }
                 // madeira://jit-network/... (the Madeira JIT shortcut returning, JITNetwork.swift),
                 // else madeira://play?exe=... (Home Screen shortcuts, SavesAndShortcuts.swift).
-                .onOpenURL { url in if !JITNetworkShortcut.shared.handle(url) { ShortcutRouter.shared.handle(url) } }
+                .onOpenURL { url in
+                    // Roblox Studio's browser login returns through this scheme.
+                    // The native bridge validates OAuth state before waking Wine.
+                    if winios_receive_auth_callback(url.absoluteString) != 0 { return }
+                    if !JITNetworkShortcut.shared.handle(url) { ShortcutRouter.shared.handle(url) }
+                }
         }
     }
 }

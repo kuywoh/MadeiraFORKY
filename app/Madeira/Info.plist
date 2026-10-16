@@ -33,6 +33,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>madeira</string>
+				<string>roblox-studio-auth</string>
 			</array>
 		</dict>
 	</array>

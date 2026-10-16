@@ -713,6 +713,14 @@ static NTSTATUS spawn_process( const RTL_USER_PROCESS_PARAMETERS *params, int so
 NTSTATUS WINAPI __wine_unix_spawnvp( char * const argv[], int wait )
 {
 #ifdef WINE_IOS
+    /* winebrowser cannot fork/exec on iOS. Route only its private sentinel
+     * request through Madeira's UIKit bridge; other programs remain unsupported. */
+    if (argv && argv[0] && !strcmp( argv[0], "madeira-ios-open-url" ) &&
+        argv[1] && argv[2])
+    {
+        extern int winios_open_external_url( const char *, char *, unsigned long );
+        return winios_open_external_url( argv[1], argv[2], 16384 ) ? STATUS_UNSUCCESSFUL : STATUS_SUCCESS;
+    }
     /* No fork/exec on iOS */
     return STATUS_NOT_SUPPORTED;
 #else
