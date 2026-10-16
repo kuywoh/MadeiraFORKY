@@ -136,6 +136,9 @@ jobs:
       - name: Add missing iOS-host CRT access compatibility
         run: git -C FEX apply ../patches/fex/0003-add-ios-windows-access-compatibility.patch
 
+      - name: Add ARM64EC instruction-cache ABI entry
+        run: git -C FEX apply ../patches/fex/0004-add-arm64ec-flush-instruction-cache-entry.patch
+
       - name: Install checksum-pinned Linux llvm-mingw
         run: |
           set -euo pipefail
