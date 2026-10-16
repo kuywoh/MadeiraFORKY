@@ -17,5 +17,14 @@ if [ ! -f "$B/CMakeCache.txt" ]; then
         -DBUILD_FEXCONFIG=ON -DENABLE_CLANG_THUNKS=ON -DENABLE_CCACHE=ON \
         -DBUILD_TESTING=OFF -DBUILD_THUNKS=OFF -DENABLE_ASSERTIONS=OFF
 fi
+echo "ARM64X C++ runtime symbol check:"
+for runtime in libc++.a libc++abi.a libunwind.a; do
+    archive="$LLVM_MINGW_BIN/../aarch64-w64-mingw32/lib/$runtime"
+    test -s "$archive"
+    echo "--- $archive"
+    "$LLVM_MINGW_BIN/llvm-nm" --demangle --defined-only "$archive" | grep -E 'recursive_mutex::lock|__gxx_personality_seh0' | head -n 8 || true
+done
+echo "FEX link libraries response file:"
+cat "$B/Source/Windows/ARM64EC/CMakeFiles/arm64ecfex.dir/linkLibs.rsp"
 cmake --build "$B" --target arm64ecfex --verbose
 cp "$B/Bin/libarm64ecfex.dll" "$R/app/Madeira/arm64ec-windows/xtajit64.dll" && ls -l "$R/app/Madeira/arm64ec-windows/xtajit64.dll"
