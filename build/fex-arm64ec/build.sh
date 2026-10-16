@@ -26,5 +26,15 @@ for runtime in libc++.a libc++abi.a libunwind.a; do
 done
 echo "FEX link libraries response file:"
 cat "$B/Source/Windows/ARM64EC/CMakeFiles/arm64ecfex.dir/linkLibs.rsp"
-cmake --build "$B" --target arm64ecfex --verbose
+if ! cmake --build "$B" --target arm64ecfex --verbose; then
+    echo "Raw ARM64EC references from the FEX module object:"
+    "$LLVM_MINGW_BIN/llvm-nm" --undefined-only \
+        "$B/Source/Windows/ARM64EC/CMakeFiles/arm64ecfex.dir/Module.cpp.obj" \
+        | grep -E 'recursive_mutex|gxx_personality|filesystem' || true
+    echo "Raw candidate definitions in libc++:"
+    "$LLVM_MINGW_BIN/llvm-nm" --defined-only \
+        "$LLVM_MINGW_BIN/../arm64ec-w64-mingw32/lib/libc++.a" \
+        | grep -E 'recursive_mutex|mutex4lock|gxx_personality|filesystem' || true
+    exit 1
+fi
 cp "$B/Bin/libarm64ecfex.dll" "$R/app/Madeira/arm64ec-windows/xtajit64.dll" && ls -l "$R/app/Madeira/arm64ec-windows/xtajit64.dll"
