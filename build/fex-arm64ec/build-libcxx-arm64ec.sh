@@ -62,3 +62,15 @@ for runtime in libc++.a libc++abi.a libunwind.a; do
         | grep --after-context=2 --before-context=2 -E 'recursive_mutex|shared_mutex_base|gxx_personality_seh0' \
         | head -n 32 || true
 done
+
+# LLD does not lazily resolve the EC personality symbol from libc++abi's
+# archive index in this ARM64EC link. Extract only that member so it can be
+# linked directly without whole-archiving libc++abi (which duplicates libc++).
+RUNTIME_LIB_DIR="$INSTALL_PREFIX/$TRIPLE/lib"
+mkdir -p "$RUNTIME_LIB_DIR/objects"
+(
+    cd "$RUNTIME_LIB_DIR/objects"
+    "$LLVM_MINGW_BIN/llvm-ar" x "$RUNTIME_LIB_DIR/libc++abi.a" cxa_personality.cpp.obj
+)
+test -s "$RUNTIME_LIB_DIR/objects/cxa_personality.cpp.obj"
+
