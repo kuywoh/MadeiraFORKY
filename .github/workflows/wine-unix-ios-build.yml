@@ -74,6 +74,13 @@ jobs:
           for module in ntdll win32u winegstreamer ieframe d3d11; do
             make -C "wine/build-macos/dlls/$module" -j"$JOBS" "aarch64-windows/$module.dll"
           done
+          make -C wine/build-macos/programs/winebrowser -j"$JOBS"
+          WINEBROWSER="$(find wine/build-macos/programs/winebrowser -type f -name winebrowser.exe -print -quit)"
+          test -n "$WINEBROWSER"
+          llvm-readobj --file-headers "$WINEBROWSER" > "$RUNNER_TEMP/winebrowser-readobj.txt"
+          grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64|Machine: 0xAA64' "$RUNNER_TEMP/winebrowser-readobj.txt"
+          mkdir -p app/Madeira/aarch64-windows
+          cp "$WINEBROWSER" app/Madeira/aarch64-windows/winebrowser.exe
           make -C wine/build-macos/server -j"$JOBS"
 
       - name: Build ARM64EC API-set schema, DWrite, DXVA2, and EVR modules
@@ -140,5 +147,6 @@ jobs:
             app/Madeira/arm64ec-windows/dxva2.dll
             app/Madeira/arm64ec-windows/evr.dll
             app/Madeira/arm64ec-windows/apisetschema.dll
+            app/Madeira/aarch64-windows/winebrowser.exe
           if-no-files-found: ignore
           retention-days: 14
