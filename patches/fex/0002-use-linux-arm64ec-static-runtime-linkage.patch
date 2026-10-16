@@ -1,7 +1,7 @@
 diff --git a/Source/Windows/ARM64EC/CMakeLists.txt b/Source/Windows/ARM64EC/CMakeLists.txt
 --- a/Source/Windows/ARM64EC/CMakeLists.txt
 +++ b/Source/Windows/ARM64EC/CMakeLists.txt
-@@ -29,9 +29,23 @@
+@@ -29,9 +29,24 @@
  # For our iOS-host build, fall through to the default mingw link rules —
  # they include the right startup files, CRT, and produce a clean arm64ec PE.
  # The resulting DLL is slightly larger but links cleanly.
@@ -17,9 +17,10 @@ diff --git a/Source/Windows/ARM64EC/CMakeLists.txt b/Source/Windows/ARM64EC/CMak
 +    target_link_libraries(arm64ecfex PRIVATE
 +      -Wl,--whole-archive
 +      "${LLVM_MINGW_ARM64EC_LIB_DIR}/libc++.a"
++      -Wl,--no-whole-archive
 +      "${LLVM_MINGW_ARM64EC_LIB_DIR}/libc++abi.a"
 +      "${LLVM_MINGW_ARM64EC_LIB_DIR}/libunwind.a"
-+      -Wl,--no-whole-archive)
++    )
 +  endif()
  else()
    target_link_options(arm64ecfex PRIVATE -static -nostdlib -nostartfiles -nodefaultlibs -lc++ -lc++abi -lunwind)
