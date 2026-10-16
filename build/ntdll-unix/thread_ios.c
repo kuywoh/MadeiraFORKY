@@ -1452,8 +1452,19 @@ NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE
      * desktop need it, aarch64 threads must not get it. */
     extern const SECTION_IMAGE_INFORMATION *ios_image_info_for_peb( void *peb_id );
     const SECTION_IMAGE_INFORMATION *ios_ii = ios_image_info_for_peb( teb->Peb );
+    USHORT owner_machine = ios_ii->Machine;
+#ifdef WINE_IOS
+    /* wine_ios_child_main allocates its first TEB before the child's PEB is
+     * registered, so ios_image_info_for_peb() still returns the ARM64 session
+     * image at that point. The spawner already published the child's PE machine
+     * in this boot thread's TLS; use it to give an AMD64 child its CHPE context
+     * before its first instruction runs. Later thread creation uses the PEB
+     * registry above. */
+    extern _Thread_local WORD ios_child_main_machine;
+    if (ios_child_main_machine) owner_machine = ios_child_main_machine;
+#endif
     if (current_machine == IMAGE_FILE_MACHINE_ARM64 &&
-        ios_ii->Machine == IMAGE_FILE_MACHINE_AMD64)
+        owner_machine == IMAGE_FILE_MACHINE_AMD64)
     {
         CHPE_V2_CPU_AREA_INFO *cpu_area;
         const SIZE_T chpev2_stack_size = 0x40000;
@@ -1467,14 +1478,20 @@ NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE
         cpu_area->EmulatorStackBase  = (ULONG_PTR)stack.StackBase;
         cpu_area->EmulatorStackLimit = (ULONG_PTR)stack.StackLimit + page_size;
         teb->ChpeV2CpuAreaInfo = cpu_area;
-        ERR("iOS arm64ec: TEB %p ChpeV2CpuAreaInfo=%p (stackBase=%p stackLimit=%p ContextAmd64=%p)\n",
-            teb, cpu_area, (void*)cpu_area->EmulatorStackBase, (void*)cpu_area->EmulatorStackLimit,
+        ERR("iOS arm64ec: TEB %p ChpeV2CpuAreaInfo=%p owner_machine=0x%x (stackBase=%p stackLimit=%p ContextAmd64=%p)\n",
+            teb, cpu_area, owner_machine, (void*)cpu_area->EmulatorStackBase, (void*)cpu_area->EmulatorStackLimit,
             cpu_area->ContextAmd64);
     }
     else
     {
-        ERR("iOS arm64ec: NOT setting cpu_area (owner machine=0x%x session is_arm64ec=%d)\n",
-            ios_ii->Machine, is_arm64ec());
+        ERR("iOS arm64ec: NOT setting cpu_area (owner machine=0x%x startup machine=0x%x session is_arm64ec=%d)\n",
+            owner_machine,
+#ifdef WINE_IOS
+            ios_child_main_machine,
+#else
+            0,
+#endif
+            is_arm64ec());
     }
 #endif
 
