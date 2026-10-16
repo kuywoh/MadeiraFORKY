@@ -130,6 +130,9 @@ jobs:
       - name: Apply Madeira ARM64EC exception-stack fix
         run: git -C FEX apply ../patches/fex/0001-guard-invalid-guest-rsp-during-exception-handoff.patch
 
+      - name: Use static ARM64EC runtime linkage on Linux build host
+        run: git -C FEX apply ../patches/fex/0002-use-linux-arm64ec-static-runtime-linkage.patch
+
       - name: Install checksum-pinned Linux llvm-mingw
         run: |
           set -euo pipefail
