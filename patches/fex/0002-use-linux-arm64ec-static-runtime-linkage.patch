@@ -2,6 +2,8 @@ diff --git a/Source/Windows/ARM64EC/CMakeLists.txt b/Source/Windows/ARM64EC/CMak
 --- a/Source/Windows/ARM64EC/CMakeLists.txt
 +++ b/Source/Windows/ARM64EC/CMakeLists.txt
 @@ -15,7 +15,6 @@
+ target_link_libraries(arm64ecfex PRIVATE
+   FEXCore_Base
    Common
    CommonTools
    CommonWindows
