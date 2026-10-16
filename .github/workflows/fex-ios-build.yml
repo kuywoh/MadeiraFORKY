@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   fex-ios:
-    name: Build FEX iOS libraries and ARM64EC runtime
+    name: Build FEX iOS libraries
     runs-on: macos-15
     timeout-minutes: 180
     env:
@@ -59,29 +59,6 @@ jobs:
       - name: Build FEXCore iOS archives
         run: bash build/fex-ios/build.sh
 
-      - name: Install checksum-pinned llvm-mingw for ARM64EC FEX
-        run: |
-          set -euo pipefail
-          mkdir -p toolchains
-          curl --fail --location --retry 3 \
-            --output "$RUNNER_TEMP/llvm-mingw.tar.xz" \
-            https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-macos-universal.tar.xz
-          echo "bd85a3975723815cef28dbbd2ca2cb0c926f6b348a12a0453f39f7af273cb3f7  $RUNNER_TEMP/llvm-mingw.tar.xz" | shasum -a 256 --check
-          tar -xJf "$RUNNER_TEMP/llvm-mingw.tar.xz" -C toolchains
-          echo "$GITHUB_WORKSPACE/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin" >> "$GITHUB_PATH"
-
-      - name: Build FEX ARM64EC runtime DLL used by Studio
-        run: bash build/fex-arm64ec/build.sh
-
-      - name: Verify ARM64EC runtime DLL
-        run: |
-          set -euo pipefail
-          DLL=app/Madeira/arm64ec-windows/xtajit64.dll
-          test -s "$DLL"
-          toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin/llvm-readobj --file-headers "$DLL" | tee "$RUNNER_TEMP/xtajit64-headers.txt"
-          grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: IMAGE_FILE_MACHINE_ARM64X' "$RUNNER_TEMP/xtajit64-headers.txt"
-          shasum -a 256 "$DLL"
-
       - name: Verify all required iOS arm64 archives
         run: |
           set -euo pipefail
@@ -126,6 +103,58 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  fex-arm64ec:
+    name: Build FEX ARM64EC runtime DLL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 3
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Initialize FEX and required submodules
+        run: |
+          set -euo pipefail
+          git submodule update --init FEX
+          git -C FEX submodule update --init --recursive \
+            External/fmt \
+            External/range-v3 \
+            External/unordered_dense \
+            External/xxhash \
+            External/rpmalloc \
+            External/jemalloc_glibc \
+            Source/Common/cpp-optparse
+
+      - name: Apply Madeira ARM64EC exception-stack fix
+        run: git -C FEX apply ../patches/fex/0001-guard-invalid-guest-rsp-during-exception-handoff.patch
+
+      - name: Install checksum-pinned Linux llvm-mingw
+        run: |
+          set -euo pipefail
+          mkdir -p toolchains
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/llvm-mingw.tar.xz" \
+            https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64.tar.xz
+          echo "f8b8cce779affeab47bcaec6ce6e9e768b166094a366123ef64b2d0b389cc121  $RUNNER_TEMP/llvm-mingw.tar.xz" | sha256sum --check
+          tar -xJf "$RUNNER_TEMP/llvm-mingw.tar.xz" -C toolchains
+          echo "$GITHUB_WORKSPACE/toolchains/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64/bin" >> "$GITHUB_PATH"
+
+      - name: Build FEX ARM64EC runtime DLL used by Studio
+        env:
+          LLVM_MINGW_BIN: ${{ github.workspace }}/toolchains/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64/bin
+        run: bash build/fex-arm64ec/build.sh
+
+      - name: Verify ARM64EC runtime DLL
+        run: |
+          set -euo pipefail
+          DLL=app/Madeira/arm64ec-windows/xtajit64.dll
+          test -s "$DLL"
+          llvm-readobj --file-headers "$DLL" | tee "$RUNNER_TEMP/xtajit64-headers.txt"
+          grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: IMAGE_FILE_MACHINE_ARM64X' "$RUNNER_TEMP/xtajit64-headers.txt"
+          sha256sum "$DLL"
+
       - name: Upload rebuilt ARM64EC FEX runtime DLL
         uses: actions/upload-artifact@v4
         with:
@@ -133,3 +162,4 @@ jobs:
           path: app/Madeira/arm64ec-windows/xtajit64.dll
           if-no-files-found: error
           retention-days: 14
+
