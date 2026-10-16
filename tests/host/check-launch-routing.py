@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """WoW64 launch routing in WineProcessBridge.m; no Wine, no app build.
 
-Part A reads the launch function and checks that a target which is not a 32-bit PE takes
-the path it took before: the name heuristic that picks the session core is untouched and
-is overridden only for an i386 target, every WoW64 step (syswow64 farm, wbem, winsxs, the
+Part A reads the launch function and checks that known PE machines select the matching
+system-DLL farm, unknown targets retain the name/override heuristic, every WoW64 step
+(syswow64 farm, wbem, winsxs, the
 host-probe export) is behind "the bundle carries the i386 set" or "the target is i386",
 and ios_main_image_i386 is published before __wine_main. Part B compiles the production
-madeira_pe_machine and madeira_target_machine against synthetic PE files and a fake bundle.
+PE probe and farm-selection helper against synthetic PE files and a fake bundle.
 """
 from pathlib import Path
-import re, subprocess, tempfile
+import subprocess, tempfile
 
 root = Path(__file__).resolve().parents[2]
 src = (root / "app/Madeira/WineProcessBridge.m").read_text().replace("\r\n", "\n")
@@ -22,13 +22,7 @@ def function(source, start):
 
 # ---- Part A: the launch function
 thread = function(src, "static void *wine_process_thread(void *arg) {")
-upstream_ec = """BOOL use_arm64ec = (force_ec && *force_ec == '1') ||
-                           (strstr(madeira_exe, "x64") != NULL) ||
-                           (strchr(madeira_exe, '\\\\') != NULL);"""
-assert upstream_ec in thread, "the session-core heuristic is upstream's, verbatim"
-assigns = re.findall(r"use_arm64ec\s*=[^=][^;]*;", thread)
-assert assigns[1:] == ["use_arm64ec = NO;"], assigns
-assert "if (is_i386_target) use_arm64ec = NO;" in thread, "only an i386 target changes the core"
+assert "const BOOL use_arm64ec = madeira_use_arm64ec(target_machine, has_i386_set, force_ec, madeira_exe);" in thread
 assert "const BOOL is_i386_target = has_i386_set && target_machine == MADEIRA_IMAGE_FILE_MACHINE_I386;" in thread
 farm = thread[thread.index("if (has_i386_set) {"):]
 farm = farm[:farm.index("/* ml719: REPAIR THE SHELL FOLDERS.")]
@@ -51,12 +45,13 @@ assert 'snprintf(exe_path, sizeof(exe_path), "C:\\\\windows\\\\system32\\\\%s", 
 sxs = function(src, "static void madeira_seed_winsxs_x86(")
 assert "x86_%s_%s_%s_none_deadbeef" in sxs and 'processorArchitecture=\\"x86\\"' in sxs
 assert "arm64" not in sxs and "amd64" not in sxs, "only x86 assemblies are written"
-print("PASS: non-i386 targets keep the upstream core choice and exe path; the i386 farm, wbem and winsxs come with the farm")
+print("PASS: known PE machine selects its matching DLL farm; the i386 farm, wbem and winsxs come with the farm")
 
 # ---- Part B: the machine probe
 pe_machine = function(src, "static uint16_t madeira_pe_machine(")
 target = function(src, "static uint16_t madeira_target_machine(")
 target = target.replace("NSString *bundle", "const char *bundle").replace("bundle.fileSystemRepresentation", "bundle")
+route = function(src, "static int madeira_use_arm64ec(")
 code = r"""
 #include <stdio.h>
 #include <stdint.h>
@@ -64,7 +59,10 @@ code = r"""
 #include <unistd.h>
 #include <limits.h>
 #include <assert.h>
-""" + pe_machine + "\n" + target + r"""
+#define MADEIRA_IMAGE_FILE_MACHINE_I386 0x014c
+#define MADEIRA_IMAGE_FILE_MACHINE_AMD64 0x8664
+#define MADEIRA_IMAGE_FILE_MACHINE_ARM64 0xaa64
+""" + pe_machine + "\n" + target + "\n" + route + r"""
 int main(int argc, char **argv)
 {
     const char *d = argv[1];
@@ -89,6 +87,14 @@ int main(int argc, char **argv)
     assert(madeira_target_machine("both.exe", prefix, bundle) == 0);
     assert(madeira_target_machine("only32.exe", prefix, bundle) == 0x14c);
     assert(madeira_target_machine("nowhere.exe", prefix, bundle) == 0);
+    /* The ARM64 cmd.exe wrapper must select ARM64 DLLs even for a full path;
+       the x64 Studio child uses the ARM64EC child-process path. */
+    assert(madeira_use_arm64ec(0xaa64, 0, NULL, "C:\\windows\\system32\\cmd.exe") == 0);
+    assert(madeira_use_arm64ec(0xaa64, 0, "1", "C:\\windows\\system32\\cmd.exe") == 0);
+    assert(madeira_use_arm64ec(0x8664, 0, NULL, "C:\\apps\\editor.exe") == 1);
+    assert(madeira_use_arm64ec(0x14c, 1, NULL, "C:\\apps\\legacy.exe") == 0);
+    assert(madeira_use_arm64ec(0, 0, "1", "unknown.exe") == 1);
+    assert(madeira_use_arm64ec(0, 0, NULL, "C:\\apps\\unknown.exe") == 1);
     puts("probe ok");
     return 0;
 }
