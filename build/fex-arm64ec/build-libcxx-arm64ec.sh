@@ -26,6 +26,8 @@ cmake -S "$LLVM_SOURCE_DIR/runtimes" -B "$BUILD_DIR" \
     -DCMAKE_CXX_COMPILER_WORKS=TRUE \
     -DCMAKE_AR="$LLVM_MINGW_BIN/llvm-ar" \
     -DCMAKE_RANLIB="$LLVM_MINGW_BIN/llvm-ranlib" \
+    '-DCMAKE_C_ARCHIVE_CREATE=<CMAKE_AR> --format=coff qc <TARGET> <LINK_FLAGS> <OBJECTS>' \
+    '-DCMAKE_CXX_ARCHIVE_CREATE=<CMAKE_AR> --format=coff qc <TARGET> <LINK_FLAGS> <OBJECTS>' \
     -DCMAKE_RC_COMPILER="$LLVM_MINGW_BIN/$TRIPLE-windres" \
     -DLLVM_ENABLE_RUNTIMES="libunwind;libcxxabi;libcxx" \
     -DLIBUNWIND_USE_COMPILER_RT=TRUE \
@@ -48,5 +50,11 @@ cmake --build "$BUILD_DIR" --parallel 3
 cmake --install "$BUILD_DIR"
 
 for runtime in libc++.a libc++abi.a libunwind.a; do
-    test -s "$INSTALL_PREFIX/$TRIPLE/lib/$runtime"
+    archive="$INSTALL_PREFIX/$TRIPLE/lib/$runtime"
+    test -s "$archive"
+    if ! grep --binary-files=text --quiet --fixed-strings '/<ECSYMBOLS>/' "$archive"; then
+        echo "ARM64EC archive is missing its required EC symbol map: $archive" >&2
+        exit 1
+    fi
+    echo "Verified ARM64EC COFF archive has EC symbol map: $archive"
 done
