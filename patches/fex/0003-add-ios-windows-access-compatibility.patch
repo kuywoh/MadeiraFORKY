@@ -1,0 +1,34 @@
+diff --git a/Source/Windows/Common/CRT/CRT_iOS.cpp b/Source/Windows/Common/CRT/CRT_iOS.cpp
+--- a/Source/Windows/Common/CRT/CRT_iOS.cpp
++++ b/Source/Windows/Common/CRT/CRT_iOS.cpp
+@@ -22,3 +22,28 @@
+ #include <rpmalloc/rpmalloc.h>
++#include <cerrno>
++#include <windows.h>
++
++// libc++'s Windows filesystem implementation expects the MinGW C runtime's
++// access() entry point. Madeira's iOS-host CRT intentionally omits the full
++// CRT replacement, so provide the small Windows-attribute check it needs.
++extern "C" int access(const char* Path, int AccessMode) {
++  if (Path == nullptr) {
++    errno = EINVAL;
++    return -1;
++  }
++
++  const DWORD Attributes = GetFileAttributesA(Path);
++  if (Attributes == INVALID_FILE_ATTRIBUTES) {
++    errno = ENOENT;
++    return -1;
++  }
++
++  // POSIX W_OK is 2; match the behavior of FEX's full Windows CRT shim.
++  if ((AccessMode & 2) && (Attributes & FILE_ATTRIBUTE_READONLY)) {
++    errno = EACCES;
++    return -1;
++  }
++  return 0;
++}
+ 
+ namespace FEX::Windows {
+
+
