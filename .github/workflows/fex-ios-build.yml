@@ -133,6 +133,9 @@ jobs:
       - name: Use static ARM64EC runtime linkage on Linux build host
         run: git -C FEX apply ../patches/fex/0002-use-linux-arm64ec-static-runtime-linkage.patch
 
+      - name: Add missing iOS-host CRT access compatibility
+        run: git -C FEX apply ../patches/fex/0003-add-ios-windows-access-compatibility.patch
+
       - name: Install checksum-pinned Linux llvm-mingw
         run: |
           set -euo pipefail
@@ -170,3 +173,4 @@ jobs:
           path: app/Madeira/arm64ec-windows/xtajit64.dll
           if-no-files-found: error
           retention-days: 14
+
