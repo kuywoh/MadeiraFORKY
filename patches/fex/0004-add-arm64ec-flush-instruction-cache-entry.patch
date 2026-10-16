@@ -1,7 +1,7 @@
 diff --git a/Source/Windows/Common/WinAPI/Alloc.cpp b/Source/Windows/Common/WinAPI/Alloc.cpp
 --- a/Source/Windows/Common/WinAPI/Alloc.cpp
 +++ b/Source/Windows/Common/WinAPI/Alloc.cpp
-@@ -110,4 +110,12 @@
+@@ -110,5 +110,13 @@
  DLLEXPORT_FUNC(WINBOOL, FlushInstructionCache, (HANDLE hProcess, const void* lpBaseAddress, SIZE_T dwSize)) {
    return WinAPIReturn(NtFlushInstructionCache(hProcess, const_cast<void*>(lpBaseAddress), dwSize));
  }
