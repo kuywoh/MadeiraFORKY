@@ -1,7 +1,7 @@
 diff --git a/Source/Windows/ARM64EC/CMakeLists.txt b/Source/Windows/ARM64EC/CMakeLists.txt
 --- a/Source/Windows/ARM64EC/CMakeLists.txt
 +++ b/Source/Windows/ARM64EC/CMakeLists.txt
-@@ -29,9 +29,24 @@
+@@ -29,9 +29,28 @@
  # For our iOS-host build, fall through to the default mingw link rules —
  # they include the right startup files, CRT, and produce a clean arm64ec PE.
  # The resulting DLL is slightly larger but links cleanly.
@@ -14,6 +14,10 @@ diff --git a/Source/Windows/ARM64EC/CMakeLists.txt b/Source/Windows/ARM64EC/CMak
 +        message(FATAL_ERROR "Missing ARM64EC runtime library: ${LLVM_MINGW_ARM64EC_LIB_DIR}/${runtime}")
 +      endif()
 +    endforeach()
++    if (NOT EXISTS "${LLVM_MINGW_ARM64EC_LIB_DIR}/objects/cxa_personality.cpp.obj")
++      message(FATAL_ERROR "Missing extracted ARM64EC C++ personality object")
++    endif()
++    target_sources(arm64ecfex PRIVATE "${LLVM_MINGW_ARM64EC_LIB_DIR}/objects/cxa_personality.cpp.obj")
 +    target_link_libraries(arm64ecfex PRIVATE
 +      -Wl,--whole-archive
 +      "${LLVM_MINGW_ARM64EC_LIB_DIR}/libc++.a"
