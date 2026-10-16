@@ -6,12 +6,16 @@ R="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LLVM_MINGW_BIN="${LLVM_MINGW_BIN:-$R/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin}"
 export PATH="$LLVM_MINGW_BIN:$PATH"
 B="$R/FEX/build-arm64ec"
+ARM64X_FLAGS=
+if [ "$(uname -s)" = "Linux" ]; then
+    ARM64X_FLAGS=-marm64x
+fi
 if [ ! -f "$B/CMakeCache.txt" ]; then
     cmake -S "$R/FEX" -B "$B" -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_TOOLCHAIN_FILE="$R/FEX/Data/CMake/toolchain_mingw.cmake" \
         -DMINGW_TRIPLE=arm64ec-w64-mingw32 \
-        -DFEX_IOS_HOST_BUILD=ON -DCMAKE_C_FLAGS=-DFEX_IOS_HOST \
-        -DCMAKE_CXX_FLAGS=-DFEX_IOS_HOST -DCMAKE_ASM_FLAGS=-DFEX_IOS_HOST \
+        -DFEX_IOS_HOST_BUILD=ON -DCMAKE_C_FLAGS="-DFEX_IOS_HOST $ARM64X_FLAGS" \
+        -DCMAKE_CXX_FLAGS="-DFEX_IOS_HOST $ARM64X_FLAGS" -DCMAKE_ASM_FLAGS="-DFEX_IOS_HOST $ARM64X_FLAGS" \
         -DTUNE_CPU=none \
         -DENABLE_FEX_ALLOCATOR=ON -DENABLE_JEMALLOC_GLIBC_ALLOC=ON -DENABLE_OFFLINE_RUNTIME=ON \
         -DBUILD_FEXCONFIG=ON -DENABLE_CLANG_THUNKS=ON -DENABLE_CCACHE=ON \
