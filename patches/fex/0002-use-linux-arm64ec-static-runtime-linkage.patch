@@ -1,0 +1,13 @@
+diff --git a/Source/Windows/ARM64EC/CMakeLists.txt b/Source/Windows/ARM64EC/CMakeLists.txt
+--- a/Source/Windows/ARM64EC/CMakeLists.txt
++++ b/Source/Windows/ARM64EC/CMakeLists.txt
+@@ -29,7 +29,7 @@
+ # For our iOS-host build, fall through to the default mingw link rules —
+ # they include the right startup files, CRT, and produce a clean arm64ec PE.
+ # The resulting DLL is slightly larger but links cleanly.
+-if (FEX_IOS_HOST_BUILD)
++if (FEX_IOS_HOST_BUILD AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+   target_link_options(arm64ecfex PRIVATE -static)
+ else()
+   target_link_options(arm64ecfex PRIVATE -static -nostdlib -nostartfiles -nodefaultlibs -lc++ -lc++abi -lunwind)
+
