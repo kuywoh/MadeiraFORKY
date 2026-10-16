@@ -17,6 +17,5 @@ if [ ! -f "$B/CMakeCache.txt" ]; then
         -DBUILD_FEXCONFIG=ON -DENABLE_CLANG_THUNKS=ON -DENABLE_CCACHE=ON \
         -DBUILD_TESTING=OFF -DBUILD_THUNKS=OFF -DENABLE_ASSERTIONS=OFF
 fi
-cmake --build "$B" --target arm64ecfex
+cmake --build "$B" --target arm64ecfex --verbose
 cp "$B/Bin/libarm64ecfex.dll" "$R/app/Madeira/arm64ec-windows/xtajit64.dll" && ls -l "$R/app/Madeira/arm64ec-windows/xtajit64.dll"
-
