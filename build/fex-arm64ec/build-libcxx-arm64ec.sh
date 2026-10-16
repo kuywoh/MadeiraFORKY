@@ -73,4 +73,3 @@ mkdir -p "$RUNTIME_LIB_DIR/objects"
     "$LLVM_MINGW_BIN/llvm-ar" x "$RUNTIME_LIB_DIR/libc++abi.a" cxa_personality.cpp.obj
 )
 test -s "$RUNTIME_LIB_DIR/objects/cxa_personality.cpp.obj"
-
