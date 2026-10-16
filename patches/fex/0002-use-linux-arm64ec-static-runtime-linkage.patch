@@ -9,7 +9,7 @@ diff --git a/Source/Windows/ARM64EC/CMakeLists.txt b/Source/Windows/ARM64EC/CMak
    CommonWindows
 -  CommonWindowsRuntime
    ntdll_ex)
-@@ -29,9 +28,36 @@
+@@ -29,9 +28,35 @@
  # For our iOS-host build, fall through to the default mingw link rules —
  # they include the right startup files, CRT, and produce a clean arm64ec PE.
  # The resulting DLL is slightly larger but links cleanly.
