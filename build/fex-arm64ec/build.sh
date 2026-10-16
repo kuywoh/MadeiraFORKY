@@ -31,10 +31,6 @@ if ! cmake --build "$B" --target arm64ecfex --verbose; then
     "$LLVM_MINGW_BIN/llvm-nm" --undefined-only \
         "$B/Source/Windows/ARM64EC/CMakeFiles/arm64ecfex.dir/Module.cpp.obj" \
         | grep -E 'recursive_mutex|gxx_personality|filesystem' || true
-    echo "Candidate FlushInstructionCache symbols in FEX Windows runtime archive:"
-    "$LLVM_MINGW_BIN/llvm-nm" --defined-only \
-        "$B/Source/Windows/Common/libCommonWindowsRuntime.a" \
-        | grep -F "FlushInstructionCache" || true
     echo "Raw candidate definitions in libc++:"
     "$LLVM_MINGW_BIN/llvm-nm" --defined-only \
         "$LLVM_MINGW_BIN/../arm64ec-w64-mingw32/lib/libc++.a" \
