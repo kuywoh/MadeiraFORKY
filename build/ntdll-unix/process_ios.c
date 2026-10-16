@@ -2443,7 +2443,16 @@ NTSTATUS WINAPI NtTerminateProcess( HANDLE handle, LONG exit_code )
                         if (!hits) dprintf(2, "[term-stack] no readable stack candidate produced hits\n");
                     }
                 }
-                else dprintf(2, "[term-stack] no FEX state on this thread (cpuarea=%p)\n", (void *)cpuarea);
+                else if (cpuarea)
+                    dprintf(2, "[term-stack] no FEX state on this thread (cpuarea=%p inSim=%u state=%p thread=%p enter=%p fill=%p ctx=%p stack=[%llx..%llx])\n",
+                            (void *)cpuarea, (unsigned)cpuarea->InSimulation,
+                            cpuarea->EmulatorData[0], cpuarea->EmulatorData[1],
+                            cpuarea->EmulatorData[2], cpuarea->EmulatorData[3],
+                            (void *)cpuarea->ContextAmd64,
+                            (unsigned long long)cpuarea->EmulatorStackLimit,
+                            (unsigned long long)cpuarea->EmulatorStackBase);
+                else
+                    dprintf(2, "[term-stack] no FEX state on this thread (cpuarea=NULL)\n");
             }
         }
     }

@@ -135,6 +135,7 @@ static void wine_log_write(const char *fmt, ...)
 #include "ntstatus.h"
 #include "windef.h"
 #include "winnt.h"
+#include "winternl.h"
 #include "winioctl.h"
 #include "wine/server.h"
 #include "wine/debug.h"
@@ -4477,6 +4478,22 @@ void server_init_process_done(void)
         extern const SECTION_IMAGE_INFORMATION *ios_cur_image_info(void);
         ERR("signal_start_thread: teb=%p peb=%p TransferAddress=%p suspend=%d\n",
             NtCurrentTeb(), peb, ios_cur_image_info()->TransferAddress, suspend);
+
+        /* ARM64EC startup trace: snapshot the first guest thread immediately
+         * before its initial transfer. This distinguishes an allocated CHPE
+         * area from one whose FEX thread state and dispatcher slots are ready. */
+        {
+            TEB *startup_teb = NtCurrentTeb();
+            CHPE_V2_CPU_AREA_INFO *area = startup_teb ? startup_teb->ChpeV2CpuAreaInfo : NULL;
+            wine_log_write("[ec-startup-trace] tid=%p teb=%p area=%p inSim=%u state=%p thread=%p enter=%p fill=%p ctx=%p",
+                           startup_teb ? startup_teb->ClientId.UniqueThread : NULL,
+                           startup_teb, area, area ? (unsigned)area->InSimulation : 0,
+                           area ? area->EmulatorData[0] : NULL,
+                           area ? area->EmulatorData[1] : NULL,
+                           area ? area->EmulatorData[2] : NULL,
+                           area ? area->EmulatorData[3] : NULL,
+                           area ? area->ContextAmd64 : NULL);
+        }
 
         /* Watchdog: suspend thread and sample registers at 2s and 4s */
         {
