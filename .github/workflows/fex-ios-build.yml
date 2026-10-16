@@ -144,6 +144,11 @@ jobs:
           tar -xJf "$RUNNER_TEMP/llvm-mingw.tar.xz" -C toolchains
           echo "$GITHUB_WORKSPACE/toolchains/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64/bin" >> "$GITHUB_PATH"
 
+      - name: Build ARM64EC C++ runtime libraries
+        env:
+          LLVM_MINGW_BIN: ${{ github.workspace }}/toolchains/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64/bin
+        run: bash build/fex-arm64ec/build-libcxx-arm64ec.sh
+
       - name: Build FEX ARM64EC runtime DLL used by Studio
         env:
           LLVM_MINGW_BIN: ${{ github.workspace }}/toolchains/llvm-mingw-20260421-ucrt-ubuntu-22.04-x86_64/bin
@@ -165,4 +170,3 @@ jobs:
           path: app/Madeira/arm64ec-windows/xtajit64.dll
           if-no-files-found: error
           retention-days: 14
-
