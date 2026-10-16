@@ -73,3 +73,12 @@ mkdir -p "$RUNTIME_LIB_DIR/objects"
     "$LLVM_MINGW_BIN/llvm-ar" x "$RUNTIME_LIB_DIR/libc++abi.a" cxa_personality.cpp.obj
 )
 test -s "$RUNTIME_LIB_DIR/objects/cxa_personality.cpp.obj"
+"$LLVM_MINGW_BIN/llvm-objcopy" \
+    --redefine-sym '#__gxx_personality_seh0=__gxx_personality_seh0' \
+    "$RUNTIME_LIB_DIR/objects/cxa_personality.cpp.obj"
+if ! "$LLVM_MINGW_BIN/llvm-nm" --defined-only \
+    "$RUNTIME_LIB_DIR/objects/cxa_personality.cpp.obj" \
+    | grep --quiet --fixed-strings 'T __gxx_personality_seh0'; then
+    echo "Failed to add the undecorated ARM64EC C++ personality alias" >&2
+    exit 1
+fi
