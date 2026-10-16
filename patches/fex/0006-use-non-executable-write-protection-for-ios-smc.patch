@@ -1,0 +1,18 @@
+diff --git a/Source/Windows/Common/InvalidationTracker.cpp b/Source/Windows/Common/InvalidationTracker.cpp
+--- a/Source/Windows/Common/InvalidationTracker.cpp
++++ b/Source/Windows/Common/InvalidationTracker.cpp
+@@ -764,6 +764,14 @@
+ ULONG InvalidationTracker::GetUntrapProt(uint64_t Address) const {
++#ifdef FEX_IOS_HOST
++  // Guest x86 pages are translated into FEX's executable code buffer. Their
++  // backing pages only need write permission while SMC translations are invalidated;
++  // asking Wine for execute|write can be silently downgraded by iOS to read-only.
++  (void)Address;
++  return PAGE_READWRITE;
++#else
+   if (DEPDisabled && DEPPromotedIntervals.Query(Address).Enclosed) {
+     return PAGE_READWRITE;
+   }
+   return PAGE_EXECUTE_READWRITE;
++#endif
+ }
