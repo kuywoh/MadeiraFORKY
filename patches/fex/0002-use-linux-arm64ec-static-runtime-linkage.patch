@@ -1,13 +1,26 @@
 diff --git a/Source/Windows/ARM64EC/CMakeLists.txt b/Source/Windows/ARM64EC/CMakeLists.txt
 --- a/Source/Windows/ARM64EC/CMakeLists.txt
 +++ b/Source/Windows/ARM64EC/CMakeLists.txt
-@@ -29,9 +29,28 @@
+@@ -15,7 +15,6 @@
+   Common
+   CommonTools
+   CommonWindows
+-  CommonWindowsRuntime
+   ntdll_ex)
+@@ -29,9 +28,34 @@
  # For our iOS-host build, fall through to the default mingw link rules —
  # they include the right startup files, CRT, and produce a clean arm64ec PE.
  # The resulting DLL is slightly larger but links cleanly.
  if (FEX_IOS_HOST_BUILD)
    target_link_options(arm64ecfex PRIVATE -static)
 +  if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
++    # The default ARM64EC archive index omits EC aliases, so lld cannot lazily
++    # extract FEX WinAPI wrappers such as FlushInstructionCache. Include this
++    # small runtime archive in full for the Linux-host DLL build.
++    target_link_libraries(arm64ecfex PRIVATE
++      -Wl,--whole-archive
++      CommonWindowsRuntime
++      -Wl,--no-whole-archive)
 +    set(LLVM_MINGW_ARM64EC_LIB_DIR "$ENV{LLVM_MINGW_BIN}/../arm64ec-w64-mingw32/lib")
 +    foreach(runtime libc++.a libc++abi.a libunwind.a)
 +      if (NOT EXISTS "${LLVM_MINGW_ARM64EC_LIB_DIR}/${runtime}")
