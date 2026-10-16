@@ -102,6 +102,10 @@ jobs:
           test -s "$APISET_DLL"
           echo 'Verified the ARM64EC API-set schema, EVR, and DXVA2 modules arrived in Madeira app resources; PE metadata was checked in the producer job.'
 
+      - name: Verify the ARM64 Wine browser launcher arrived in app resources
+        if: ${{ needs.build-wine-unix.result == 'success' }}
+        run: test -s app/Madeira/aarch64-windows/winebrowser.exe
+
       - name: Stage bundled license copies
         run: bash build/stage-licenses.sh
 
@@ -169,7 +173,8 @@ jobs:
             'Payload/Madeira.app/Frameworks/StikJITSDK.framework/StikJITSDK' \
             'Payload/Madeira.app/arm64ec-windows/dxva2.dll' \
             'Payload/Madeira.app/arm64ec-windows/evr.dll' \
-            'Payload/Madeira.app/arm64ec-windows/apisetschema.dll'; do
+            'Payload/Madeira.app/arm64ec-windows/apisetschema.dll' \
+            'Payload/Madeira.app/aarch64-windows/winebrowser.exe'; do
             if ! grep -Fxq "$required_entry" <<< "$IPA_ENTRIES"; then
               echo "error: IPA is missing required app/JIT entry: $required_entry" >&2
               exit 1
