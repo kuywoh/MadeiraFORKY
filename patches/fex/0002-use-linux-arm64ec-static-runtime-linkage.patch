@@ -1,21 +1,20 @@
 diff --git a/Source/Windows/ARM64EC/CMakeLists.txt b/Source/Windows/ARM64EC/CMakeLists.txt
 --- a/Source/Windows/ARM64EC/CMakeLists.txt
 +++ b/Source/Windows/ARM64EC/CMakeLists.txt
-@@ -29,9 +29,19 @@
+@@ -29,9 +29,18 @@
  # For our iOS-host build, fall through to the default mingw link rules —
  # they include the right startup files, CRT, and produce a clean arm64ec PE.
  # The resulting DLL is slightly larger but links cleanly.
  if (FEX_IOS_HOST_BUILD)
    target_link_options(arm64ecfex PRIVATE -static)
 +  if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
-+    set(LLVM_MINGW_ARM64X_LIB_DIR "$ENV{LLVM_MINGW_BIN}/../aarch64-w64-mingw32/lib")
++    set(LLVM_MINGW_ARM64EC_LIB_DIR "$ENV{LLVM_MINGW_BIN}/../arm64ec-w64-mingw32/lib")
 +    foreach(runtime libc++.a libc++abi.a libunwind.a)
-+      if (NOT EXISTS "${LLVM_MINGW_ARM64X_LIB_DIR}/${runtime}")
-+        message(FATAL_ERROR "Missing ARM64X runtime library: ${LLVM_MINGW_ARM64X_LIB_DIR}/${runtime}")
++      if (NOT EXISTS "${LLVM_MINGW_ARM64EC_LIB_DIR}/${runtime}")
++        message(FATAL_ERROR "Missing ARM64EC runtime library: ${LLVM_MINGW_ARM64EC_LIB_DIR}/${runtime}")
 +      endif()
 +    endforeach()
-+    target_link_libraries(arm64ecfex PRIVATE "${LLVM_MINGW_ARM64X_LIB_DIR}/libc++.a" "${LLVM_MINGW_ARM64X_LIB_DIR}/libc++abi.a" "${LLVM_MINGW_ARM64X_LIB_DIR}/libunwind.a")
-+    target_link_options(arm64ecfex PRIVATE -marm64x)
++    target_link_libraries(arm64ecfex PRIVATE "${LLVM_MINGW_ARM64EC_LIB_DIR}/libc++.a" "${LLVM_MINGW_ARM64EC_LIB_DIR}/libc++abi.a" "${LLVM_MINGW_ARM64EC_LIB_DIR}/libunwind.a")
 +  endif()
  else()
    target_link_options(arm64ecfex PRIVATE -static -nostdlib -nostartfiles -nodefaultlibs -lc++ -lc++abi -lunwind)
