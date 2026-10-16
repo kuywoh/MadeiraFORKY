@@ -22,7 +22,7 @@ for runtime in libc++.a libc++abi.a libunwind.a; do
     archive="$LLVM_MINGW_BIN/../arm64ec-w64-mingw32/lib/$runtime"
     test -s "$archive"
     echo "--- $archive"
-    "$LLVM_MINGW_BIN/llvm-nm" --demangle --defined-only "$archive" | grep -E 'recursive_mutex::lock|__gxx_personality_seh0' | head -n 8 || true
+    "$LLVM_MINGW_BIN/llvm-nm" --demangle --defined-only "$archive" | grep -Ei 'mutex|condition_variable|sleep_for|gxx_personality' | head -n 40 || true
 done
 echo "FEX link libraries response file:"
 cat "$B/Source/Windows/ARM64EC/CMakeFiles/arm64ecfex.dir/linkLibs.rsp"
