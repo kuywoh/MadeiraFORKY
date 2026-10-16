@@ -12442,37 +12442,25 @@ static inline int mprotect_exec( void *base, size_t size, int unix_prot )
                                                &info_cnt, &obj_name);
             if (qkr == KERN_SUCCESS && (info.protection & VM_PROT_EXECUTE))
             {
-                /* ml999: the EXEC check alone is not the whole postcondition.
-                 * Astra's rdr67 review: this fast path returns success as soon as
-                 * EXEC is present, without requiring that a REQUESTED WRITE
-                 * survived -- and iOS never grants W+X, so a request for RWX
-                 * comes back RX and is reported as success. FEX's
-                 * HandleRWXAccessViolation likewise ignores the
-                 * NtProtectVirtualMemory status before reporting "handled", so a
-                 * caller that asked for writable backing can be told it got it
-                 * and then fault again on the very next store -- the second
-                 * retry loop she warned about, after the classification fix
-                 * removes the first one.
-                 *
-                 * Report only; do NOT change the return here. Whether the right
-                 * answer is to fail the request, to drop EXEC and keep WRITE
-                 * (the ml957 "backing stays non-exec, pool copy keeps X"
-                 * policy), or to leave it to the caller depends on who asked,
-                 * and that is the next run's discriminator rather than a guess. */
+                /* iOS can report success for RWX while silently keeping only RX.
+                 * Do not call that a successful writable transition: pool-copied PE
+                 * images have a fallback below that grants RW to their non-executable
+                 * backing while the JIT-pool copy remains executable. */
                 if ((unix_prot & PROT_WRITE) && !(info.protection & VM_PROT_WRITE))
                 {
                     static unsigned wsurv;
                     if (wsurv++ < 16)
-                        dprintf( 2, "ml999: mprotect_exec %p+%#lx asked for W+X but only "
-                                 "prot=%#x survived -- returning SUCCESS with WRITE DROPPED. "
-                                 "A caller expecting writable backing will fault again\n",
+                        dprintf( 2, "[mprotect-exec] %p+%#lx requested writable executable memory, "
+                                 "but iOS left prot=%#x; trying the non-executable writable backing path\n",
                                  base, (unsigned long)size, info.protection );
                 }
-                return 0;  /* genuinely RX/RWX — done */
+                else
+                    return 0;  /* every requested permission survived */
             }
-            ERR("iOS mprotect(rwx) appeared to succeed but EXEC not actually granted "
-                "at %p+0x%lx (qkr=%d prot=0x%x); falling through to JIT-pool path\n",
-                base, (unsigned long)size, qkr, qkr == KERN_SUCCESS ? info.protection : -1);
+            ERR("iOS mprotect permission mismatch for %p+0x%lx "
+                "(requested=0x%x qkr=%d prot=0x%x); falling through to JIT-pool path\n",
+                base, (unsigned long)size, unix_prot, qkr,
+                qkr == KERN_SUCCESS ? info.protection : -1);
         }
 
         if (!jit_rx_base || !jit_rw_base)
