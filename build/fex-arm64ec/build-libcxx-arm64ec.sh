@@ -57,4 +57,8 @@ for runtime in libc++.a libc++abi.a libunwind.a; do
         exit 1
     fi
     echo "Verified ARM64EC COFF archive has EC symbol map: $archive"
+    echo "Relevant entries in archive symbol maps: $runtime"
+    "$LLVM_MINGW_BIN/llvm-nm" --print-armap "$archive" \
+        | grep --after-context=2 --before-context=2 -E 'recursive_mutex|shared_mutex_base|gxx_personality_seh0' \
+        | head -n 32 || true
 done
