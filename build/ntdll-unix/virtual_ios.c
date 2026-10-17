@@ -1370,8 +1370,92 @@ static void ios_pool_owner_search( const uint64_t *wanted, unsigned nwanted )
  * so the margin should be large; if [soft-pool] COLLISION appears, this design
  * needs the full own-and-broker-the-window treatment before it can be trusted. */
 #define IOS_SOFT_MAX 8
-static struct { uint64_t base, size, committed; unsigned commits, collisions; unsigned cage; } ios_soft[IOS_SOFT_MAX];
+struct ios_soft_mapping { uint64_t base, size; struct ios_soft_mapping *next; };
+struct ios_soft_pool { uint64_t base, size, returned, committed; unsigned commits, collisions; unsigned cage, passthrough;
+                       struct ios_soft_mapping *mappings; };
+static struct ios_soft_pool ios_soft[IOS_SOFT_MAX];
 static unsigned ios_soft_n;
+
+static int ios_soft_add( uint64_t base, uint64_t returned, uint64_t size, unsigned cage, unsigned passthrough )
+{
+    struct ios_soft_pool *pool;
+
+    if (ios_soft_n >= IOS_SOFT_MAX) return 0;
+    pool = &ios_soft[ios_soft_n++];
+    memset( pool, 0, sizeof(*pool) );
+    pool->base = base;
+    pool->returned = returned;
+    pool->size = size;
+    pool->cage = cage;
+    pool->passthrough = passthrough;
+    return 1;
+}
+
+/* Keep a coalesced list of only the pages this soft pool actually mapped. */
+static void ios_soft_mapping_add( struct ios_soft_mapping **head, struct ios_soft_mapping *mapping )
+{
+    struct ios_soft_mapping **link = head, *entry;
+    uint64_t end = mapping->base + mapping->size;
+
+    while ((entry = *link))
+    {
+        uint64_t entry_end = entry->base + entry->size;
+        if (end < entry->base || mapping->base > entry_end)
+        {
+            link = &entry->next;
+            continue;
+        }
+        if (entry->base < mapping->base) mapping->base = entry->base;
+        if (entry_end > end) end = entry_end;
+        mapping->size = end - mapping->base;
+        *link = entry->next;
+        free( entry );
+        link = head;  /* the enlarged range may now touch an earlier entry */
+    }
+    mapping->next = *head;
+    *head = mapping;
+}
+
+static void ios_soft_forget( uint64_t returned )
+{
+    unsigned i, j;
+    for (i = 0; i < ios_soft_n; i++)
+    {
+        if (ios_soft[i].returned != returned) continue;
+        for (j = i + 1; j < ios_soft_n; j++) ios_soft[j - 1] = ios_soft[j];
+        memset( &ios_soft[--ios_soft_n], 0, sizeof(ios_soft[0]) );
+        return;
+    }
+}
+
+/* Return 1 when a soft reservation was released, 2 when only its bookkeeping
+ * was removed and the real Wine view must still be freed, 0 when not ours, and
+ * -1 if any materialised range could not be unmapped. */
+static int ios_soft_release( uint64_t returned )
+{
+    unsigned i, j;
+    for (i = 0; i < ios_soft_n; i++)
+    {
+        struct ios_soft_mapping **link;
+        if (ios_soft[i].returned != returned) continue;
+        if (ios_soft[i].passthrough) return 2;
+        link = &ios_soft[i].mappings;
+        while (*link)
+        {
+            struct ios_soft_mapping *entry = *link;
+            if (munmap( (void *)(uintptr_t)entry->base, entry->size ) < 0) return -1;
+            *link = entry->next;
+            free( entry );
+        }
+        dprintf( 2, "[soft-pool] RELEASE base=0x%llx size=0x%llx commits=%u\n",
+                 (unsigned long long)ios_soft[i].base,
+                 (unsigned long long)ios_soft[i].size, ios_soft[i].commits );
+        for (j = i + 1; j < ios_soft_n; j++) ios_soft[j - 1] = ios_soft[j];
+        memset( &ios_soft[--ios_soft_n], 0, sizeof(ios_soft[0]) );
+        return 1;
+    }
+    return 0;
+}
 
 /* ml433 (#72): the V8/cppgc cage holdback.
  *
@@ -1412,11 +1496,16 @@ static int ios_soft_find( uint64_t addr )
 }
 
 /* Is this 16GB-aligned slot free of any pool we already handed out? */
-static int ios_soft_slot_taken( uint64_t slot )
+static int ios_soft_slot_taken( uint64_t slot, uint64_t size, int allow_nested )
 {
     unsigned i;
     for (i = 0; i < ios_soft_n; i++)
-        if (ios_soft[i].base == slot) return 1;
+    {
+        uint64_t end = slot + size;
+        uint64_t pool_end = ios_soft[i].base + ios_soft[i].size;
+        if (slot < pool_end && ios_soft[i].base < end &&
+            !(allow_nested && slot >= ios_soft[i].base && end <= pool_end)) return 1;
+    }
     return 0;
 }
 
@@ -21740,11 +21829,24 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR z
                 {
                     unsigned int svp = 0;
                     void *mp;
+                    struct ios_soft_mapping *mapping = malloc( sizeof(*mapping) );
                     ios_soft[si].commits++;
                     get_vprot_flags( protect, &svp, FALSE );
-                    mp = anon_mmap_fixed( (void *)(uintptr_t)want, need,
-                                          get_unix_prot( (BYTE)(svp | VPROT_COMMITTED) ), 0 );
-                    ios_soft[si].committed += need;
+                    if (mapping)
+                    {
+                        mp = anon_mmap_fixed( (void *)(uintptr_t)want, need,
+                                              get_unix_prot( (BYTE)(svp | VPROT_COMMITTED) ), 0 );
+                        if (mp == MAP_FAILED) free( mapping );
+                        else
+                        {
+                            mapping->base = want;
+                            mapping->size = need;
+                            mapping->next = NULL;
+                            ios_soft_mapping_add( &ios_soft[si].mappings, mapping );
+                            ios_soft[si].committed += need;
+                        }
+                    }
+                    else mp = MAP_FAILED;
                     dprintf(2, "[soft-pool] materialised 0x%llx+0x%lx in soft 0x%llx -> %p"
                                " (total %lluMB in %u calls)\n",
                             (unsigned long long)want, (unsigned long)need,
@@ -22259,13 +22361,8 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR z
                     if (!st2 && (uintptr_t)pick == IOS_CAGE_BASE)
                     {
                         sz = *size_ptr;   /* report the full 8GB; the real view is 64K short */
-                        if (ios_soft_n < IOS_SOFT_MAX)
-                        {
-                            ios_soft[ios_soft_n].base = IOS_CAGE_BASE + IOS_CAGE_REAL_SIZE;
-                            ios_soft[ios_soft_n].size = 0x200000000ULL - IOS_CAGE_REAL_SIZE;
-                            ios_soft[ios_soft_n].cage = 1;
-                            ios_soft_n++;
-                        }
+                        ios_soft_add( IOS_CAGE_BASE + IOS_CAGE_REAL_SIZE, pick,
+                                      0x200000000ULL - IOS_CAGE_REAL_SIZE, 1, 1 );
                     }
                     else if (!st2) sz = csz;   /* landed elsewhere: honest grant, no size lie */
                     dprintf(2, "[cage] grant %p real=0x%llx reported=0x%lx st=0x%x rev=ml433\n",
@@ -22288,14 +22385,12 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR z
                     unsigned ci;
                     for (ci = 0; ci < 2 && st2; ci++)
                     {
-                        if (ios_soft_slot_taken( cage4_slots[ci] )) continue;
+                        if (ios_soft_slot_taken( cage4_slots[ci], 0x100000000ULL, 1 )) continue;
                         if (ios_soft_n >= IOS_SOFT_MAX) break;
-                        ios_soft[ios_soft_n].base = cage4_slots[ci];
-                        ios_soft[ios_soft_n].size = 0x100000000ULL;
-                        ios_soft[ios_soft_n].cage = 1;
-                        ios_soft_n++;
                         pick = (void *)(uintptr_t)cage4_slots[ci];
                         sz = *size_ptr;
+                        if (!ios_soft_add( cage4_slots[ci], (uint64_t)(uintptr_t)pick, sz, 1, 0 ))
+                            break;
                         st2 = 0;
                         dprintf(2, "[cage] soft-grant %p size=0x%lx (4GB cage in PA guard dead zone) rev=ml434\n",
                                 pick, (unsigned long)sz);
@@ -22341,7 +22436,7 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR z
                         SIZE_T probe_sz = 0x10000;
                         NTSTATUS pst;
 
-                        if (ios_soft_slot_taken( slot )) continue;
+                        if (ios_soft_slot_taken( slot, *size_ptr, 0 )) continue;
                         /* ml170: reserved for steered 512MB reserves (see
                          * ios_steer_slot) -- granting it as a pool is what caused
                          * the 43 collisions and cost us the 4th pool. */
@@ -22369,13 +22464,12 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR z
                         probe_addr = NULL; probe_sz = 0;
                         (void)probe_addr; (void)probe_sz; (void)pst;
 
-                        ios_soft[ios_soft_n].base = slot;
-                        ios_soft[ios_soft_n].size = *size_ptr;
-                        ios_soft[ios_soft_n].committed = 0;
-                        ios_soft[ios_soft_n].commits = 0;
-                        ios_soft[ios_soft_n].collisions = 0;
-                        ios_soft_n++;
                         *ret = (void *)(uintptr_t)(off ? slot + off - align_unit : slot);
+                        if (!ios_soft_add( slot, (uint64_t)(uintptr_t)*ret, *size_ptr, 0, 0 ))
+                        {
+                            st = STATUS_NO_MEMORY;
+                            break;
+                        }
                         st = STATUS_SUCCESS;
                         dprintf(2, "[soft-pool] GRANTED soft 0x%llx (base returned %p, size=0x%lx)"
                                    " — unbacked, commits materialise on demand\n",
@@ -23818,6 +23912,9 @@ NTSTATUS WINAPI NtFreeVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T *si
     char *base;
     sigset_t sigset;
     unsigned int status = STATUS_SUCCESS;
+#ifdef WINE_IOS
+    int soft_passthrough = 0;
+#endif
     LPVOID addr = *addr_ptr;
     SIZE_T size = *size_ptr;
 
@@ -23952,6 +24049,13 @@ NTSTATUS WINAPI NtFreeVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T *si
 
     /* ml433 (#72): keep the jumbo ledger honest — see ios_bigres_release. */
     if (type & MEM_RELEASE) ios_bigres_release( base );
+    if (type == MEM_RELEASE && !size)
+    {
+        int soft = ios_soft_release( (uint64_t)(uintptr_t)addr );
+        if (soft == 1) return STATUS_SUCCESS;
+        if (soft < 0) return STATUS_UNABLE_TO_FREE_VM;
+        soft_passthrough = soft == 2;
+    }
     /* ml435 (#73): band span lifecycle census — resolve MEM_RELEASE size=0 from the view. */
     if ((type & MEM_RELEASE) && (uintptr_t)base >= 0x7c00000000ULL)
     {
@@ -24041,6 +24145,7 @@ NTSTATUS WINAPI NtFreeVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T *si
 
     if (status == STATUS_SUCCESS)
     {
+        if (soft_passthrough) ios_soft_forget( (uint64_t)(uintptr_t)addr );
         *addr_ptr = base;
         *size_ptr = size;
     }
