@@ -90,6 +90,17 @@ final class PassthroughSubject<Output, Failure: Error> {
 #endif
 enum MadeiraConfig {
     static var values: [String: String] = [:]   // stands in for madeira.cfg
+    static func parse(_ text: String) -> [String: String] {
+        var result: [String: String] = [:]
+        for raw in text.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, !line.hasPrefix("#"), let eq = line.firstIndex(of: "=") else { continue }
+            let key = line[..<eq].trimmingCharacters(in: .whitespaces)
+            let value = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+            if !key.isEmpty { result[key] = value }
+        }
+        return result
+    }
     static func flag(_ name: String, fallback: Bool = true) -> Bool { fallback }
     static func get(_ key: String) -> String? { values[key] }
     static func bool(_ key: String, default dflt: Bool = false) -> Bool { values[key].map { ["1", "on", "true", "yes"].contains($0) } ?? dflt }
@@ -137,6 +148,15 @@ game.configureLaunch()
 expect(env("MADEIRA_EXE") == "C:\\Games\\Some Game\\bin\\game.exe", "direct executable path")
 expect(env("MADEIRA_ARGS") == "-windowed \"-name=a b\"", "direct arguments verbatim")
 expect(env("MADEIRA_DESKTOP") == nil, "desktop state cleared")
+var studioEntry = LibraryEntry(title: "Studio", relativePath: "WebView2Loader/RobloxStudioBeta.exe", bits: 64)
+expect(studioEntry.gameConfigText == "jumbo-mb = 40961\nenv.WEBVIEW2_USER_DATA_FOLDER = C:\\users\\mobile\\AppData\\Local\\Roblox\\WebView2UserData", "Roblox Studio gets holdback and WebView2 user data folder by default")
+MadeiraConfig.values = ["jumbo-mb": "32768", "env.WEBVIEW2_USER_DATA_FOLDER": "C:\\custom"]
+expect(studioEntry.gameConfigText == nil, "global settings override the Studio defaults")
+MadeiraConfig.values = [:]
+studioEntry.config = "jumbo-mb = 0"
+expect(studioEntry.gameConfigText == "env.WEBVIEW2_USER_DATA_FOLDER = C:\\users\\mobile\\AppData\\Local\\Roblox\\WebView2UserData\njumbo-mb = 0", "a per-game jumbo-mb setting can explicitly disable the Studio holdback default")
+studioEntry.config = "env.WINEDEBUG = err+all"
+expect(studioEntry.gameConfigText == "jumbo-mb = 40961\nenv.WEBVIEW2_USER_DATA_FOLDER = C:\\users\\mobile\\AppData\\Local\\Roblox\\WebView2UserData\nenv.WINEDEBUG = err+all", "Studio default preserves unrelated per-game settings")
 // Every entry's Resolution becomes the session's virtual monitor.
 expect(game.resolution == "1152x800", "ml1172: new entries default to the screen's shape at 720p's pixels (1152x800 on an 11-inch iPad)")
 expect(env("MADEIRA_SCREEN_W") == "1152" && env("MADEIRA_SCREEN_H") == "800" && env("MADEIRA_SCREEN_SRC") == "knob",
