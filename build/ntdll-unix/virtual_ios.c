@@ -1509,6 +1509,12 @@ static int ios_soft_slot_taken( uint64_t slot, uint64_t size, int allow_nested )
     return 0;
 }
 
+static int ios_reject_out_of_map_soft_reserve( void )
+{
+    const char *value = getenv( "MADEIRA_REJECT_OUT_OF_MAP_RESERVES" );
+    return value && !strcmp( value, "1" );
+}
+
 static void ios_soft_report( const char *why )
 {
     unsigned i;
@@ -22459,6 +22465,16 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR z
                         if (slot < ios_furniture_ceiling
                             && slot + (uint64_t)*size_ptr > 0x7038000000ULL)
                             continue;
+                        if (ios_reject_out_of_map_soft_reserve() &&
+                            slot + (uint64_t)*size_ptr > (uintptr_t)host_addr_space_limit)
+                        {
+                            st = STATUS_NO_MEMORY;
+                            dprintf(2, "[soft-pool] rejected out-of-map reserve base=0x%llx size=0x%lx"
+                                      " task-ceiling=0x%llx status=0xc0000017 flag=MADEIRA_REJECT_OUT_OF_MAP_RESERVES\n",
+                                    (unsigned long long)slot, (unsigned long)*size_ptr,
+                                    (unsigned long long)(uintptr_t)host_addr_space_limit);
+                            break;
+                        }
                         /* skip a slot that already holds a REAL pool: a 64KB
                          * probe reserve at its base would succeed only if free */
                         probe_addr = NULL; probe_sz = 0;
