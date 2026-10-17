@@ -79,6 +79,28 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(process);
 
+#ifdef WINE_IOS
+static BOOL is_webview2_runtime_image( const UNICODE_STRING *image )
+{
+    static const WCHAR runtime_name[] = L"msedgewebview2.exe";
+    unsigned int i, j, chars = image->Length / sizeof(WCHAR);
+    const unsigned int name_chars = ARRAY_SIZE(runtime_name) - 1;
+
+    if (!image->Buffer || chars < name_chars) return FALSE;
+    for (i = 0; i <= chars - name_chars; i++)
+    {
+        for (j = 0; j < name_chars; j++)
+        {
+            WCHAR c = image->Buffer[i + j];
+            if (c >= L'A' && c <= L'Z') c += L'a' - L'A';
+            if (c != runtime_name[j]) break;
+        }
+        if (j == name_chars) return TRUE;
+    }
+    return FALSE;
+}
+#endif
+
 
 static ULONG execute_flags = MEM_EXECUTE_OPTION_DISABLE;
 
@@ -1129,6 +1151,8 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
 #ifdef WINE_IOS
     ERR("NtCreateUserProcess: image=%s cmdline=%s\n",
         debugstr_us( &params->ImagePathName ), debugstr_us( &params->CommandLine ));
+    if (is_webview2_runtime_image( &params->ImagePathName ))
+        ERR("[StudioAuth] WebView2 runtime process creation requested\n");
 
     /* TEMP HACK (Steam S3 2026-07-10, task #29): refuse to spawn Steam's
      * minidump reporter. The reporter child hits the deep guest-exception-

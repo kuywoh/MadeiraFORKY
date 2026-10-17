@@ -72,6 +72,7 @@ int winios_receive_auth_callback(const char *url_string)
             pthread_cond_broadcast(&winios_auth_cond);
         }
         pthread_mutex_unlock(&winios_auth_lock);
+        NSLog(@"[StudioAuth] callback received accepted=%d", accepted);
         return accepted;
     }
 }
@@ -82,10 +83,16 @@ int winios_open_external_url(const char *url_string, char *callback_buffer, unsi
         if (!url_string || !callback_buffer || callback_capacity < 2) return -1;
         callback_buffer[0] = '\0';
         NSString *url_text = [NSString stringWithUTF8String:url_string];
-        if (!url_text) return -1;
+        if (!url_text) {
+            NSLog(@"[StudioAuth] external URL rejected: invalid UTF-8");
+            return -1;
+        }
         NSURLComponents *parts = [NSURLComponents componentsWithString:url_text];
         NSString *scheme = parts.scheme.lowercaseString;
-        if (![scheme isEqualToString:@"https"] && ![scheme isEqualToString:@"http"]) return -1;
+        if (![scheme isEqualToString:@"https"] && ![scheme isEqualToString:@"http"]) {
+            NSLog(@"[StudioAuth] external URL rejected: unsupported scheme");
+            return -1;
+        }
 
         NSString *expected_state = nil;
         BOOL needs_callback = NO;
@@ -96,10 +103,18 @@ int winios_open_external_url(const char *url_string, char *callback_buffer, unsi
                 [item.value.lowercaseString hasPrefix:@"roblox-studio-auth:"]) needs_callback = YES;
         }
         const char *state_utf8 = expected_state.UTF8String;
-        if (needs_callback && (!state_utf8 || strlen(state_utf8) >= sizeof(winios_auth_state))) return -1;
+        if (needs_callback && (!state_utf8 || strlen(state_utf8) >= sizeof(winios_auth_state))) {
+            NSLog(@"[StudioAuth] external URL rejected: callback state unavailable");
+            return -1;
+        }
+        NSLog(@"[StudioAuth] external browser request received callback_expected=%d", needs_callback);
 
         pthread_mutex_lock(&winios_auth_lock);
-        if (winios_auth_pending) { pthread_mutex_unlock(&winios_auth_lock); return -1; }
+        if (winios_auth_pending) {
+            pthread_mutex_unlock(&winios_auth_lock);
+            NSLog(@"[StudioAuth] external browser request rejected: another login is pending");
+            return -1;
+        }
         winios_auth_pending = needs_callback;
         winios_auth_finished = 0;
         winios_auth_opened = 0;
@@ -109,6 +124,7 @@ int winios_open_external_url(const char *url_string, char *callback_buffer, unsi
         pthread_mutex_unlock(&winios_auth_lock);
 
         dispatch_semaphore_t opened = dispatch_semaphore_create(0);
+        NSLog(@"[StudioAuth] requesting Safari handoff");
         dispatch_async(dispatch_get_main_queue(), ^{
             [[UIApplication sharedApplication] openURL:[NSURL URLWithString:url_text]
                                                options:@{}
@@ -118,10 +134,12 @@ int winios_open_external_url(const char *url_string, char *callback_buffer, unsi
                 if (!success && winios_auth_pending) winios_auth_finished = 1;
                 pthread_cond_broadcast(&winios_auth_cond);
                 pthread_mutex_unlock(&winios_auth_lock);
+                NSLog(@"[StudioAuth] Safari handoff completed success=%d", success);
                 dispatch_semaphore_signal(opened);
             }];
         });
-        dispatch_semaphore_wait(opened, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC));
+        long open_wait = dispatch_semaphore_wait(opened, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC));
+        if (open_wait != 0) NSLog(@"[StudioAuth] Safari handoff completion timed out");
 
         pthread_mutex_lock(&winios_auth_lock);
         if (needs_callback && winios_auth_opened)
@@ -134,6 +152,7 @@ int winios_open_external_url(const char *url_string, char *callback_buffer, unsi
         }
         int success = winios_auth_opened && (!needs_callback || winios_auth_finished) &&
             (!needs_callback || winios_auth_callback[0]);
+        int callback_received = winios_auth_finished && winios_auth_callback[0];
         if (success && needs_callback && strlen(winios_auth_callback) < callback_capacity)
             strcpy(callback_buffer, winios_auth_callback);
         else if (success && needs_callback) success = 0;
@@ -143,6 +162,7 @@ int winios_open_external_url(const char *url_string, char *callback_buffer, unsi
         winios_auth_state[0] = '\0';
         winios_auth_callback[0] = '\0';
         pthread_mutex_unlock(&winios_auth_lock);
+        NSLog(@"[StudioAuth] browser login finished success=%d callback_received=%d", success, callback_received);
         return success ? 0 : -1;
     }
 }
