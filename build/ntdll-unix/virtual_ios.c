@@ -2134,6 +2134,11 @@ static uintptr_t ios_jumbo_holdback_take( size_t size )
 {
     uintptr_t base = ios_jumbo_hold_base;
 
+    /* Do not let an unrelated small reserve consume a holdback meant for the
+     * single large guest allocation. In the Studio trace, 1–2GB reserves run
+     * before its 40GB request; handing the holdback to one of those would
+     * recreate the fragmentation failure this mechanism exists to prevent. */
+    if (size < 0x200000000ULL) return 0;
     if (!ios_jumbo_hold_size || size > ios_jumbo_hold_size) return 0;
     dprintf( 2, "[jumbo-hold] ml996 releasing the holdback 0x%llx +%llu MB for a %llu MB "
              "request\n", (unsigned long long)base,

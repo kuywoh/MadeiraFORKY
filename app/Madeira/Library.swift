@@ -286,6 +286,23 @@ struct LibraryEntry: Codable, Identifiable {
     var gameConfigText: String? {
         var lines: [String] = []
         if let metalFXUpscale { lines.append("metalfx-upscale = \(metalFXUpscale)") }
+
+        // Roblox Studio asks for a 40 GiB contiguous reservation. The latest
+        // device trace has enough total free VA, but its largest hole has
+        // already been fragmented below that size by the time Studio asks.
+        // Reserve that hole during Wine startup, using the existing jumbo
+        // holdback path. Keep this scoped to Studio, and let either the global
+        // config or this game's config explicitly override/disable it.
+        let executable = launchRelativePath
+            .split(whereSeparator: { $0 == "/" || $0 == "\\" })
+            .last.map(String.init)?.lowercased()
+        let gameConfig = MadeiraConfig.parse(config ?? "")
+        if executable == "robloxstudiobeta.exe",
+           MadeiraConfig.get("jumbo-mb") == nil,
+           gameConfig["jumbo-mb"] == nil {
+            lines.append("jumbo-mb = 40960")
+        }
+
         if let config, !config.isEmpty { lines.append(config) }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
