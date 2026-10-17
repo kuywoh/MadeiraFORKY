@@ -82,7 +82,9 @@ WINE_DEFAULT_DEBUG_CHANNEL(process);
 #ifdef WINE_IOS
 static BOOL is_webview2_runtime_image( const UNICODE_STRING *image )
 {
-    static const WCHAR runtime_name[] = L"msedgewebview2.exe";
+    static const WCHAR runtime_name[] = {
+        'm', 's', 'e', 'd', 'g', 'e', 'w', 'e', 'b', 'v', 'i', 'e', 'w', '2', '.', 'e', 'x', 'e', 0
+    };
     unsigned int i, j, chars = image->Length / sizeof(WCHAR);
     const unsigned int name_chars = ARRAY_SIZE(runtime_name) - 1;
 
