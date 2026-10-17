@@ -21836,13 +21836,23 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR z
                     unsigned int svp = 0;
                     void *mp;
                     struct ios_soft_mapping *mapping = malloc( sizeof(*mapping) );
+                    int map_errno = 0;
                     ios_soft[si].commits++;
                     get_vprot_flags( protect, &svp, FALSE );
                     if (mapping)
                     {
                         mp = anon_mmap_fixed( (void *)(uintptr_t)want, need,
                                               get_unix_prot( (BYTE)(svp | VPROT_COMMITTED) ), 0 );
-                        if (mp == MAP_FAILED) free( mapping );
+                        if (mp == MAP_FAILED)
+                        {
+                            map_errno = errno;
+                            free( mapping );
+                            dprintf(2, "[soft-pool] commit-failed pool=0x%llx range=0x%llx+0x%lx"
+                                      " mmap-errno=%d tid=%04x\n",
+                                    (unsigned long long)ios_soft[si].base,
+                                    (unsigned long long)want, (unsigned long)need, map_errno,
+                                    NtCurrentTeb() ? (unsigned)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread : 0);
+                        }
                         else
                         {
                             mapping->base = want;
@@ -21852,7 +21862,15 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR z
                             ios_soft[si].committed += need;
                         }
                     }
-                    else mp = MAP_FAILED;
+                    else
+                    {
+                        mp = MAP_FAILED;
+                        dprintf(2, "[soft-pool] commit-failed pool=0x%llx range=0x%llx+0x%lx"
+                                  " reason=tracking-allocation-failed tid=%04x\n",
+                                (unsigned long long)ios_soft[si].base,
+                                (unsigned long long)want, (unsigned long)need,
+                                NtCurrentTeb() ? (unsigned)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread : 0);
+                    }
                     dprintf(2, "[soft-pool] materialised 0x%llx+0x%lx in soft 0x%llx -> %p"
                                " (total %lluMB in %u calls)\n",
                             (unsigned long long)want, (unsigned long)need,
