@@ -286,6 +286,26 @@ struct LibraryEntry: Codable, Identifiable {
     var gameConfigText: String? {
         var lines: [String] = []
         if let metalFXUpscale { lines.append("metalfx-upscale = \(metalFXUpscale)") }
+
+        // Roblox Studio integration defaults:
+        // 1. WEBVIEW2_USER_DATA_FOLDER: Wine's AppUserModelId stubs fail when unset,
+        //    causing EmbeddedBrowserWebView.dll to abort environment creation.
+        // 2. jumbo-mb: Holdback reservation for Studio address space.
+        let executable = launchRelativePath
+            .split(whereSeparator: { $0 == "/" || $0 == "\\" })
+            .last.map(String.init)?.lowercased()
+        let gameConfig = MadeiraConfig.parse(config ?? "")
+        if executable == "robloxstudiobeta.exe" {
+            if MadeiraConfig.get("jumbo-mb") == nil,
+               gameConfig["jumbo-mb"] == nil {
+                lines.append("jumbo-mb = 40961")
+            }
+            if MadeiraConfig.get("env.WEBVIEW2_USER_DATA_FOLDER") == nil,
+               gameConfig["env.WEBVIEW2_USER_DATA_FOLDER"] == nil {
+                lines.append("env.WEBVIEW2_USER_DATA_FOLDER = C:\\users\\mobile\\AppData\\Local\\Roblox\\WebView2UserData")
+            }
+        }
+
         if let config, !config.isEmpty { lines.append(config) }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
