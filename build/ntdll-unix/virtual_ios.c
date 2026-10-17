@@ -2058,7 +2058,11 @@ void ios_jumbo_holdback_init( void )
     done = 1;
 
     want = (size_t)(madeira_cfg_int( "jumbo-mb", 0 ) * 1024ll * 1024ll);   /* ml1095: madeira.cfg jumbo-mb = N */
-    if (!want) return;                       /* opt-in: absent or 0 => off */
+    if (!want)
+    {
+        dprintf( 2, "[jumbo-hold] disabled: jumbo-mb is unset or zero\n" );
+        return;                              /* opt-in: absent or 0 => off */
+    }
 
     /* ml1029: the keep floor, same units. ml1095: madeira.cfg jumbo-keep-mb = N */
     ios_jumbo_hold_keep = (size_t)(madeira_cfg_int( "jumbo-keep-mb", 0 ) * 1024ll * 1024ll);
@@ -2134,17 +2138,23 @@ static uintptr_t ios_jumbo_holdback_take( size_t size )
 {
     uintptr_t base = ios_jumbo_hold_base;
 
-    /* Do not let an unrelated small reserve consume a holdback meant for the
-     * single large guest allocation. In the Studio trace, 1–2GB reserves run
-     * before its 40GB request; handing the holdback to one of those would
-     * recreate the fragmentation failure this mechanism exists to prevent. */
-    if (size < 0x200000000ULL) return 0;
+    /* jumbo-mb is configured in MiB while a guest reservation also needs a
+     * 64KiB guard. Only consume a holdback sized for this request (within the
+     * one-MiB config granularity); smaller 1–32GiB reservations must not steal
+     * the 40GiB hold before Studio asks for it. */
     if (!ios_jumbo_hold_size || size > ios_jumbo_hold_size) return 0;
+    if (ios_jumbo_hold_size - size > 0x100000ULL) return 0;
     dprintf( 2, "[jumbo-hold] ml996 releasing the holdback 0x%llx +%llu MB for a %llu MB "
              "request\n", (unsigned long long)base,
              (unsigned long long)ios_jumbo_hold_size >> 20,
              (unsigned long long)size >> 20 );
-    munmap( (void *)base, ios_jumbo_hold_size );
+    if (munmap( (void *)base, ios_jumbo_hold_size ) != 0)
+    {
+        dprintf( 2, "[jumbo-hold] release failed at 0x%llx +%llu MB errno=%d; keeping hold state\n",
+                 (unsigned long long)base,
+                 (unsigned long long)ios_jumbo_hold_size >> 20, errno );
+        return 0;
+    }
     ios_jumbo_hold_base = 0;
     ios_jumbo_hold_size = 0;
     return base;

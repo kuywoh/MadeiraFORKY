@@ -300,7 +300,9 @@ struct LibraryEntry: Codable, Identifiable {
         if executable == "robloxstudiobeta.exe",
            MadeiraConfig.get("jumbo-mb") == nil,
            gameConfig["jumbo-mb"] == nil {
-            lines.append("jumbo-mb = 40960")
+            // The guest asks to map 40 GiB plus a 64 KiB guard. Config is in
+            // whole MiB, so reserve one extra MiB to include that guard.
+            lines.append("jumbo-mb = 40961")
         }
 
         if let config, !config.isEmpty { lines.append(config) }
