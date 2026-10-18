@@ -1843,13 +1843,42 @@ unsigned int server_call_unlocked( void *req_ptr )
 {
     struct __server_request_info * const req = req_ptr;
     unsigned int ret;
+#ifdef WINE_IOS
+    unsigned int ios_trace_seq = 0;
+    unsigned int ios_trace_tid = (unsigned int)(uintptr_t)NtCurrentTeb()->ClientId.UniqueThread;
+    static volatile unsigned int ios_ui_req_seq;
+    extern uintptr_t ios_srv_game_teb;
+
+    /* The Studio primary/UI thread (006c in the captured session) was observed
+     * blocked reading a wineserver reply. Record only its request opcode and
+     * sizes so the next capture identifies an unanswered request, without
+     * logging payloads. Match its TEB, not its per-launch Wine thread ID. */
+    if (ios_srv_game_teb && (uintptr_t)NtCurrentTeb() == ios_srv_game_teb)
+    {
+        ios_trace_seq = __sync_add_and_fetch( &ios_ui_req_seq, 1 );
+        wine_log_write( "[ui-server-call] begin seq=%u tid=%04x req=%u request=%u reply=%u",
+                        ios_trace_seq, ios_trace_tid, (unsigned int)req->u.req.request_header.req,
+                        (unsigned int)req->u.req.request_header.request_size,
+                        (unsigned int)req->u.req.request_header.reply_size );
+    }
+#endif
 
     ios_srv_req_count++;
 #ifdef WINE_IOS
     /* killed inside a section (ios_defer_section_abort): no more requests */
-    if (ios_section_state() & IOS_SECTION_ABORT) return STATUS_THREAD_IS_TERMINATING;
+    if (ios_section_state() & IOS_SECTION_ABORT)
+    {
+        if (ios_trace_seq) wine_log_write( "[ui-server-call] end seq=%u status=%08x aborted=1", ios_trace_seq, STATUS_THREAD_IS_TERMINATING );
+        return STATUS_THREAD_IS_TERMINATING;
+    }
 #endif
-    if ((ret = send_request( req ))) return ret;
+    if ((ret = send_request( req )))
+    {
+#ifdef WINE_IOS
+        if (ios_trace_seq) wine_log_write( "[ui-server-call] end seq=%u status=%08x phase=send", ios_trace_seq, ret );
+#endif
+        return ret;
+    }
     /* iOS-Madeira 2026-07-05: kick the in-process server loop out of its
      * tick sleep so the request is picked up in ~50us instead of waiting
      * for the next 1ms iteration (fd_ios.c ios_srv_wake_sem). */
@@ -1857,7 +1886,11 @@ unsigned int server_call_unlocked( void *req_ptr )
         extern void ios_wineserver_wake(void);
         ios_wineserver_wake();
     }
-    return wait_reply( req );
+    ret = wait_reply( req );
+#ifdef WINE_IOS
+    if (ios_trace_seq) wine_log_write( "[ui-server-call] end seq=%u status=%08x", ios_trace_seq, ret );
+#endif
+    return ret;
 }
 
 
