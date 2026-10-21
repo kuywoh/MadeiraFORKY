@@ -646,6 +646,153 @@ void madeira_seed_studio_auth(const char *prefix_path)
     }
 }
 
+/* Studio enumerates its built-in plugin directory but then drops every entry
+ * in its own plugin-scope filter, so Ribbon/SystemMenu never load and Studio
+ * has no File menu (REA-TASK.md). The OTA registry is the one source that
+ * survives that filter on this port: Studio requests the OTA version, finds no
+ * OTA file and falls back to the shipped copy, which it loads. Register the
+ * built-ins there. Idempotent, and real OTA entries are left untouched. */
+static int madeira_version_key_cmp(NSString *a, NSString *b)
+{
+    NSArray *pa = [a componentsSeparatedByString:@"."];
+    NSArray *pb = [b componentsSeparatedByString:@"."];
+    NSUInteger n = MAX(pa.count, pb.count);
+
+    for (NSUInteger i = 0; i < n; i++)
+    {
+        long long va = i < pa.count ? [pa[i] longLongValue] : 0;
+        long long vb = i < pb.count ? [pb[i] longLongValue] : 0;
+        if (va != vb) return va < vb ? -1 : 1;
+    }
+    return 0;
+}
+
+static void madeira_collect_version_keys(id registry, NSMutableArray *keys)
+{
+    id data = [registry isKindOfClass:NSDictionary.class] ? registry[@"data"] : nil;
+
+    if (![data isKindOfClass:NSDictionary.class]) return;
+    for (id entry in [data allValues])
+    {
+        if (![entry isKindOfClass:NSDictionary.class]) continue;
+        for (NSString *group in @[@"currentDeployment", @"deployments"])
+        {
+            id map = entry[group];
+            if (![map isKindOfClass:NSDictionary.class]) continue;
+            for (NSString *key in map)
+                if ([key isKindOfClass:NSString.class] && [key containsString:@"."] &&
+                    ![keys containsObject:key])
+                    [keys addObject:key];
+        }
+    }
+}
+
+void madeira_seed_studio_plugins(const char *prefix_path)
+{
+    @autoreleasepool {
+        NSFileManager *fm = NSFileManager.defaultManager;
+        NSString *prefix, *users_dir;
+        NSArray *users;
+
+        if (!prefix_path || !*prefix_path) return;
+        prefix = [NSString stringWithUTF8String:prefix_path];
+        users_dir = [prefix stringByAppendingPathComponent:@"drive_c/users"];
+        users = [fm contentsOfDirectoryAtPath:users_dir error:NULL];
+
+        for (NSString *user in users)
+        {
+            NSString *roblox = [users_dir stringByAppendingPathComponent:
+                [user stringByAppendingPathComponent:@"AppData/Local/Roblox"]];
+            NSString *versions = [roblox stringByAppendingPathComponent:@"Versions"];
+            NSString *ota_dir = [roblox stringByAppendingPathComponent:@"OTAPlugins"];
+            NSString *registry_path = [ota_dir stringByAppendingPathComponent:@"Deployed/OTAData.json"];
+            NSMutableDictionary *registry;
+            NSMutableArray *keys = [NSMutableArray array];
+            NSString *version_key = nil;
+            NSArray *version_dirs;
+            NSMutableSet *known = [NSMutableSet set];
+            NSUInteger seeded = 0;
+
+            version_dirs = [fm contentsOfDirectoryAtPath:versions error:NULL];
+            if (!version_dirs.count) continue;
+
+            {
+                NSData *raw = [NSData dataWithContentsOfFile:registry_path];
+                id parsed = raw ? [NSJSONSerialization JSONObjectWithData:raw options:0 error:NULL] : nil;
+
+                registry = [parsed isKindOfClass:NSDictionary.class] ? [parsed mutableCopy] : nil;
+                if (!registry) registry = [@{@"schemaVersion": @1} mutableCopy];
+                if (![registry[@"data"] isKindOfClass:NSDictionary.class])
+                    registry[@"data"] = [NSMutableDictionary dictionary];
+                else
+                    registry[@"data"] = [registry[@"data"] mutableCopy];
+                madeira_collect_version_keys(registry, keys);
+
+                NSData *cache = [NSData dataWithContentsOfFile:
+                    [ota_dir stringByAppendingPathComponent:@"OTADataCache.json"]];
+                id cache_json = cache ? [NSJSONSerialization JSONObjectWithData:cache options:0 error:NULL] : nil;
+                madeira_collect_version_keys(cache_json, keys);
+            }
+
+            for (NSString *key in keys)
+                if (!version_key || madeira_version_key_cmp(key, version_key) > 0) version_key = key;
+            if (!version_key)
+            {
+                LOG("studio-plugins: no Studio version key yet, skipping");
+                continue;
+            }
+
+            NSMutableDictionary *data = registry[@"data"];
+            [known addObjectsFromArray:data.allKeys];
+
+            for (NSString *vdir in version_dirs)
+            {
+                NSString *plugins;
+                NSArray *files;
+
+                if (![vdir hasPrefix:@"version-"]) continue;
+                plugins = [[versions stringByAppendingPathComponent:vdir]
+                    stringByAppendingPathComponent:@"BuiltInStandalonePlugins/Optimized_Embedded_Signature"];
+                files = [fm contentsOfDirectoryAtPath:plugins error:NULL];
+                for (NSString *file in files)
+                {
+                    NSString *name;
+
+                    if (![file.pathExtension isEqualToString:@"rbxm"]) continue;
+                    name = file.stringByDeletingPathExtension;
+                    if (!name.length || [known containsObject:name]) continue;
+                    data[name] = @{
+                        @"pluginAssetId": @(-1),
+                        @"isStandalone": @YES,
+                        @"currentDeployment": @{ version_key: @{
+                            @"pluginVersion": @999999,
+                            @"assetVersion": @999999,
+                            @"maxStudioVersion": @9999,
+                        }},
+                    };
+                    [known addObject:name];
+                    seeded++;
+                }
+            }
+
+            if (!seeded) continue;
+            {
+                NSData *out = [NSJSONSerialization dataWithJSONObject:registry options:0 error:NULL];
+
+                [fm createDirectoryAtPath:registry_path.stringByDeletingLastPathComponent
+                    withIntermediateDirectories:YES attributes:nil error:NULL];
+                if (!out || ![out writeToFile:registry_path atomically:YES])
+                {
+                    LOG("studio-plugins: writing %{public}s failed", registry_path.UTF8String);
+                    continue;
+                }
+            }
+            LOG("studio-plugins: registered %d built-ins for %{public}s (studio %{public}s)",
+                (int)seeded, user.UTF8String, version_key.UTF8String);
+        }
+    }
+}
+
 /* ===========================================================================
  * WoW64: 32-bit (i386) targets. See docs/WOW64.md.
  *

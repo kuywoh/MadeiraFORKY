@@ -154,6 +154,10 @@ int wineserver_start(const char *prefix_path) {
          * before the registry is read. */
         extern void madeira_seed_studio_auth(const char *prefix_path);
         madeira_seed_studio_auth(prefix_path);
+        /* Studio drops its built-in plugins in its own scope filter on this
+         * port; registering them in the OTA store is the path that loads. */
+        extern void madeira_seed_studio_plugins(const char *prefix_path);
+        madeira_seed_studio_plugins(prefix_path);
     }
 
     {
