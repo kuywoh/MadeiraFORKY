@@ -4,6 +4,7 @@ import UIKit
 import Darwin
 import ImageIO
 import Combine
+import CryptoKit
 
 // ============================================================================
 // Library front end.
@@ -281,6 +282,13 @@ struct LibraryEntry: Codable, Identifiable {
     /// nil = off), passed on as this game's `metalfx-upscale` line.
     var metalFXUpscale: Double?
 
+    /// Roblox Studio, by executable name: the entry that gets the Studio
+    /// defaults below and the library's own sign-in (RobloxStudioSignIn).
+    var isRobloxStudio: Bool {
+        launchRelativePath.split(whereSeparator: { $0 == "/" || $0 == "\\" })
+            .last.map { $0.lowercased() } == "robloxstudiobeta.exe"
+    }
+
     /// What MadeiraConfig.applyGame writes for this game: the lines its pickers
     /// stand for, then its own config, which wins where both set a key.
     var gameConfigText: String? {
@@ -291,11 +299,8 @@ struct LibraryEntry: Codable, Identifiable {
         // 1. WEBVIEW2_USER_DATA_FOLDER: Wine's AppUserModelId stubs fail when unset,
         //    causing EmbeddedBrowserWebView.dll to abort environment creation.
         // 2. jumbo-mb: Holdback reservation for Studio address space.
-        let executable = launchRelativePath
-            .split(whereSeparator: { $0 == "/" || $0 == "\\" })
-            .last.map(String.init)?.lowercased()
         let gameConfig = MadeiraConfig.parse(config ?? "")
-        if executable == "robloxstudiobeta.exe" {
+        if isRobloxStudio {
             if MadeiraConfig.get("jumbo-mb") == nil,
                gameConfig["jumbo-mb"] == nil {
                 lines.append("jumbo-mb = 40961")
@@ -608,6 +613,194 @@ struct LibraryEntry: Codable, Identifiable {
         // same size as its /desktop= argument.
         GuestDisplay.configureSessionDefault(view: CGSize(width: 1280, height: 720), knob: resolution)
     }
+}
+
+/// Roblox Studio's browser login cannot finish on this port: its OAuth relay
+/// hands the callback URL to a *second* Studio through ShellExecuteW, and the
+/// shared JIT pool does not fit two. Madeira therefore runs the same public
+/// client's PKCE flow itself, in the Safari handoff the winebrowser path already
+/// uses (winios_open_external_url), and leaves the tokens in the prefix for
+/// madeira_seed_studio_auth (WineProcessBridge.m) to turn into the Credential
+/// Manager entries Studio reads at startup. Studio then comes up signed in, and
+/// refreshes the session itself from then on.
+final class RobloxStudioSignIn: ObservableObject {
+    static let shared = RobloxStudioSignIn()
+
+    // The values Studio's own authorize request uses (RobloxStudioBeta.exe
+    // 0xaa5f6b0 and the client config at 0x8b65e30), so the tokens have the
+    // scopes Studio expects.
+    private static let clientID = "7968549422692352298"
+    private static let redirectURI = "roblox-studio-auth:/"
+    private static let scopes = "openid credentials profile age roles premium verification"
+    private static let authorizeURL = "https://apis.roblox.com/oauth/v1/authorize"
+    private static let tokenURL = "https://apis.roblox.com/oauth/v1/token"
+
+    @Published private(set) var busy = false
+    @Published private(set) var error: String?
+    @Published private(set) var userID = UserDefaults.standard.string(forKey: "robloxStudio.userID")
+    @Published private(set) var userName = UserDefaults.standard.string(forKey: "robloxStudio.userName")
+
+    var signedIn: Bool { userID != nil }
+
+    /// Tokens signed in but not yet in Studio's credential store: they are
+    /// written when wineserver starts, then the seed file goes away.
+    var pending: Bool { FileManager.default.fileExists(atPath: Self.seedPath.path) }
+
+    private static var seedPath: URL {
+        LibraryModel.documents.appendingPathComponent("wine/madeira-studio-auth.json")
+    }
+
+    func signIn() {
+        guard !busy else { return }
+        busy = true
+        error = nil
+
+        let verifier = Self.randomToken(32)
+        let challenge = Self.base64URL(Data(SHA256.hash(data: Data(verifier.utf8))))
+        let state = Self.randomToken(16)
+        var parts = URLComponents(string: Self.authorizeURL)!
+        parts.queryItems = [
+            URLQueryItem(name: "client_id", value: Self.clientID),
+            URLQueryItem(name: "redirect_uri", value: Self.redirectURI),
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "scope", value: Self.scopes),
+            URLQueryItem(name: "code_challenge", value: challenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
+            URLQueryItem(name: "state", value: state),
+        ]
+        guard let url = parts.url?.absoluteString else { busy = false; return }
+
+        // The handoff blocks until the callback comes back (five minutes at
+        // most): keep it off the main thread.
+        DispatchQueue.global(qos: .userInitiated).async {
+            var callback = [CChar](repeating: 0, count: 16384)
+            let opened = winios_open_external_url(url, &callback, UInt(callback.count))
+            let reply = opened == 0 ? String(cString: callback) : nil
+            Task { @MainActor in await self.complete(reply, verifier: verifier, state: state) }
+        }
+    }
+
+    @MainActor
+    private func complete(_ callback: String?, verifier: String, state: String) async {
+        defer { busy = false }
+        guard let callback, let parts = URLComponents(string: callback),
+              parts.queryItems?.first(where: { $0.name == "state" })?.value == state,
+              let code = parts.queryItems?.first(where: { $0.name == "code" })?.value else {
+            error = callback == nil
+                ? "The browser did not come back with a Roblox sign-in."
+                : "The sign-in came back for a different request."
+            return
+        }
+
+        do {
+            let tokens = try await Self.exchange(code: code, verifier: verifier)
+            guard let refresh = tokens["refresh_token"] as? String,
+                  let access = tokens["access_token"] as? String else {
+                throw StudioSignInError("Roblox did not return a refresh token.")
+            }
+            let idToken = tokens["id_token"] as? String
+            let claims = Self.claims(idToken)
+            var user = claims["sub"] as? String
+            var name = claims["name"] as? String ?? claims["preferred_username"] as? String
+            if user == nil {
+                let account = await Self.authenticatedUser(access: access)
+                user = account.id
+                name = name ?? account.name
+            }
+            guard let user, !user.isEmpty else {
+                throw StudioSignInError("Roblox did not say which account signed in.")
+            }
+
+            let seed: [String: Any] = [
+                "refreshToken": refresh,
+                "accessToken": access,
+                "expiresAt": Int(Date().timeIntervalSince1970) + (tokens["expires_in"] as? Int ?? 3600),
+                "userId": user,
+            ]
+            try FileManager.default.createDirectory(at: Self.seedPath.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: seed, options: [.sortedKeys])
+                .write(to: Self.seedPath, options: .atomic)
+
+            UserDefaults.standard.set(user, forKey: "robloxStudio.userID")
+            UserDefaults.standard.set(name, forKey: "robloxStudio.userName")
+            userID = user
+            userName = name
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private static func exchange(code: String, verifier: String) async throws -> [String: Any] {
+        var request = URLRequest(url: URL(string: tokenURL)!)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        var form = URLComponents()
+        form.queryItems = [
+            URLQueryItem(name: "grant_type", value: "authorization_code"),
+            URLQueryItem(name: "code", value: code),
+            URLQueryItem(name: "code_verifier", value: verifier),
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
+        ]
+        request.httpBody = form.percentEncodedQuery?.data(using: .utf8)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw StudioSignInError("Roblox did not answer.")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw StudioSignInError("Roblox refused the sign-in (HTTP \(http.statusCode)).")
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw StudioSignInError("Roblox's answer was not readable.")
+        }
+        return json
+    }
+
+    /// The account id from the id token, when the token response carries one.
+    private static func claims(_ idToken: String?) -> [String: Any] {
+        guard let idToken else { return [:] }
+        let pieces = idToken.split(separator: ".")
+        guard pieces.count > 1 else { return [:] }
+        var body = String(pieces[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        while body.count % 4 != 0 { body += "=" }
+        guard let data = Data(base64Encoded: body),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return json
+    }
+
+    /// Fallback for an id token without a subject.
+    private static func authenticatedUser(access: String) async -> (id: String?, name: String?) {
+        var request = URLRequest(url: URL(string: "https://users.roblox.com/v1/users/authenticated")!)
+        request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return (nil, nil)
+        }
+        let id = (json["id"] as? NSNumber)?.stringValue ?? (json["id"] as? String)
+        return (id, json["name"] as? String)
+    }
+
+    private static func randomToken(_ count: Int) -> String {
+        base64URL(Data((0..<count).map { _ in UInt8.random(in: 0...255) }))
+    }
+
+    private static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+struct StudioSignInError: LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
 }
 
 final class LibraryModel: ObservableObject {
@@ -2967,6 +3160,9 @@ struct LibraryDetail: View {
                     Button("Choose cover image", systemImage: "photo") { importCover = true }
                     if entry.coverFile != nil { Button((entry.steamAppID ?? entry.steamID) != nil ? "Use Steam artwork" : "Remove cover image") { entry.coverFile = nil } }
                 } }
+                // Roblox Studio signs in through Madeira, not through its own
+                // browser flow: see RobloxStudioSignIn.
+                if entry.isRobloxStudio { RobloxStudioSignInSection() }
                 // A Steam game's cloud saves, then how it starts, under its library
                 // details (SteamGames.swift).
                 if let appID = entry.steamAppID {
@@ -3186,6 +3382,44 @@ struct LibraryDetail: View {
                 if command == "back" { model.save(entry); dismiss() }
                 if command == "accept" { start() }
             }
+        }
+    }
+}
+
+/// Game details › Roblox Studio: the library's sign-in. Studio's own browser
+/// login needs a second Studio for its OAuth relay, which the shared JIT pool
+/// cannot fit, so Madeira completes the flow and hands Studio the credentials
+/// (RobloxStudioSignIn, madeira_seed_studio_auth).
+struct RobloxStudioSignInSection: View {
+    @ObservedObject private var signIn = RobloxStudioSignIn.shared
+
+    var body: some View {
+        Section {
+            if let id = signIn.userID {
+                LabeledContent("Account", value: signIn.userName ?? "user \(id)")
+                Button("Sign in to another account") { signIn.signIn() }
+            } else {
+                Button { signIn.signIn() } label: {
+                    Label("Sign in to Roblox", systemImage: "person.crop.circle.badge.checkmark")
+                }
+            }
+            if signIn.busy {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Waiting for the browser…").foregroundStyle(.secondary)
+                }
+            }
+            if let error = signIn.error {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
+            if signIn.signedIn, signIn.pending {
+                Text("Start Studio to finish signing in: the tokens go into its credential store when Studio starts.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Roblox Studio")
+        } footer: {
+            Text("Studio's own browser login cannot finish here: its OAuth relay needs a second Studio. Madeira signs in for it, so Studio starts signed in, and Studio keeps the session itself from then on.")
         }
     }
 }

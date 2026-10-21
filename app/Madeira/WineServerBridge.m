@@ -149,6 +149,11 @@ int wineserver_start(const char *prefix_path) {
     {
         extern void madeira_seed_prefix_if_needed(const char *prefix_path);
         madeira_seed_prefix_if_needed(prefix_path);
+        /* A Roblox Studio sign-in from the library (Library.swift) leaves its
+         * tokens in the prefix; turn them into Credential Manager entries
+         * before the registry is read. */
+        extern void madeira_seed_studio_auth(const char *prefix_path);
+        madeira_seed_studio_auth(prefix_path);
     }
 
     {

@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <pwd.h>
 #include <fcntl.h>
+#include <sys/time.h>
 #include <sys/socket.h>
 #include <setjmp.h>
 #include <stdlib.h>
@@ -449,6 +450,198 @@ void madeira_seed_prefix_if_needed(const char *prefix_path) {
         /* ml581: see madeira_undo_appdata_skeleton() above. */
         madeira_undo_appdata_skeleton( prefix );
         madeira_ensure_locallow( prefix );
+    }
+}
+
+/* ---- Roblox Studio sign-in: seed Windows Credential Manager ---------------
+ *
+ * Studio cannot complete its own browser login on this port: its OAuth relay
+ * hands the callback URL back through ShellExecuteW, which starts a *second*
+ * Studio, and the shared JIT pool does not fit two. Madeira runs the same
+ * OAuth PKCE flow in its own Safari handoff (Library.swift,
+ * RobloxStudioSignIn) and leaves the tokens in
+ * <prefix>/madeira-studio-auth.json; this function turns them into the
+ * credentials Studio reads at startup, so Studio comes up signed in -- no
+ * second process, nothing for the user to click.
+ *
+ * Studio keeps its session in Windows Credential Manager as generic
+ * credentials named https://www.roblox.com:RobloxStudioAuth<key>, holding
+ * plain UTF-8 blobs. Wine's advapi32/cred.c stores those under
+ * HKCU\Software\Wine\Credential Manager\Generic: <target> as Flags, Type and
+ * Persist dwords, a LastWritten FILETIME, and "Password" = the blob
+ * RC4-encrypted (SystemFunction032) with the 8-byte key in the manager key's
+ * EncryptionKey. The server reads user.reg only once, before its registry
+ * exists, so this runs from wineserver_start() beside the prefix seeding. */
+static const char * const kStudioAuthBase = "https://www.roblox.com:RobloxStudioAuth";
+/* Where the key paths live in user.reg: the file escapes a backslash as
+ * two. */
+#define STUDIO_REG_MGR "Software\\\\Wine\\\\Credential Manager"
+
+static NSString * madeira_reg_hex(NSData *data)
+{
+    const uint8_t *bytes = data.bytes;
+    NSMutableString *hex = [NSMutableString stringWithCapacity:data.length * 3];
+    for (NSUInteger i = 0; i < data.length; i++)
+        [hex appendFormat:@"%s%02x", i ? "," : "", bytes[i]];
+    return hex;
+}
+
+/* SystemFunction032 is plain RC4; data is encrypted in place by Wine. */
+static NSData * madeira_rc4(NSData *data, const uint8_t *key, NSUInteger key_length)
+{
+    uint8_t s[256];
+    uint8_t i, j = 0, t;
+    NSMutableData *out = [NSMutableData dataWithLength:data.length];
+    const uint8_t *in = data.bytes;
+    uint8_t *o = out.mutableBytes;
+
+    for (int n = 0; n < 256; n++) s[n] = (uint8_t)n;
+    for (int n = 0; n < 256; n++)
+    {
+        j = (uint8_t)(j + s[n] + key[n % key_length]);
+        t = s[n]; s[n] = s[j]; s[j] = t;
+    }
+    i = j = 0;
+    for (NSUInteger n = 0; n < data.length; n++)
+    {
+        i = (uint8_t)(i + 1);
+        j = (uint8_t)(j + s[i]);
+        t = s[i]; s[i] = s[j]; s[j] = t;
+        o[n] = (uint8_t)(in[n] ^ s[(uint8_t)(s[i] + s[j])]);
+    }
+    return out;
+}
+
+/* The prefix's credential encryption key, when the manager already has one:
+ * every credential in the prefix is encrypted with it (or, when there is no
+ * key yet, with the fresh one this function writes). */
+static NSData * madeira_existing_encryption_key(NSString *reg)
+{
+    NSRange mark = [reg rangeOfString:@"\"EncryptionKey\"=hex:"];
+    NSMutableData *bytes;
+
+    if (mark.location == NSNotFound) return nil;
+    NSUInteger start = NSMaxRange(mark);
+    NSRange line = [reg lineRangeForRange:NSMakeRange(start, 0)];
+    NSString *hex = [reg substringWithRange:NSMakeRange(start, NSMaxRange(line) - start)];
+    bytes = [NSMutableData data];
+    for (NSUInteger n = 0; n + 1 < hex.length; n += 3)
+    {
+        unsigned value = 0;
+        if (sscanf([hex substringWithRange:NSMakeRange(n, 2)].UTF8String, "%2x", &value) != 1) break;
+        [bytes appendBytes:&value length:1];
+    }
+    return bytes.length == 8 ? bytes : nil;
+}
+
+void madeira_seed_studio_auth(const char *prefix_path)
+{
+    @autoreleasepool {
+        NSString *prefix, *seed_path, *reg_path, *reg, *added;
+        NSDictionary *seed;
+        NSData *seed_data, *key, *encrypted, *last_written;
+        NSMutableArray *entries;
+        NSArray *key_names;
+        uint64_t file_time;
+
+        if (!prefix_path || !*prefix_path) return;
+        prefix = [NSString stringWithUTF8String:prefix_path];
+        seed_path = [prefix stringByAppendingPathComponent:@"madeira-studio-auth.json"];
+        seed_data = [NSData dataWithContentsOfFile:seed_path];
+        if (!seed_data) return;                    /* nobody signed in yet */
+        seed = [NSJSONSerialization JSONObjectWithData:seed_data options:0 error:NULL];
+        if (![seed isKindOfClass:NSDictionary.class])
+        {
+            LOG("studio-auth: %{public}s is not readable JSON", seed_path.UTF8String);
+            return;
+        }
+
+        NSString *refresh = seed[@"refreshToken"], *access = seed[@"accessToken"], *user = seed[@"userId"];
+        NSNumber *expires = seed[@"expiresAt"];
+        if (![refresh isKindOfClass:NSString.class] || ![access isKindOfClass:NSString.class] ||
+            ![user isKindOfClass:NSString.class] || ![expires isKindOfClass:NSNumber.class] ||
+            !refresh.length || !user.length)
+        {
+            LOG("studio-auth: the seed is missing a token or the user id");
+            return;
+        }
+
+        reg_path = [prefix stringByAppendingPathComponent:@"user.reg"];
+        reg = [NSString stringWithContentsOfFile:reg_path encoding:NSUTF8StringEncoding error:NULL];
+        if (!reg)
+        {
+            /* Nothing to patch yet: keep the seed for the next start. */
+            LOG("studio-auth: no user.reg, keeping the seed");
+            return;
+        }
+
+        key = madeira_existing_encryption_key(reg);
+        if (!key)
+        {
+            uint8_t fresh[8];
+            arc4random_buf(fresh, sizeof(fresh));
+            key = [NSData dataWithBytes:fresh length:sizeof(fresh)];
+        }
+
+        /* LastWritten is a FILETIME: 100 ns ticks since 1601. */
+        {
+            struct timeval now;
+            gettimeofday(&now, NULL);
+            file_time = (uint64_t)(now.tv_sec + 11644473600LL) * 10000000ULL + (uint64_t)now.tv_usec * 10ULL;
+        }
+        last_written = [NSData dataWithBytes:&file_time length:sizeof(file_time)];
+
+        /* Studio's own set, as its Windows install writes it: the four values
+         * the legacy path reads, the same four again under the account id for
+         * the multi-user path, and the migration flag that sends it there. */
+        key_names = @[
+            @"oauth2RefreshToken",
+            [NSString stringWithFormat:@"oauth2RefreshToken%@", user],
+            @"accessToken",
+            [NSString stringWithFormat:@"accessToken%@", user],
+            @"expiresAtSecSinceEpoch",
+            [NSString stringWithFormat:@"expiresAtSecSinceEpoch%@", user],
+            @"userid",
+            @"hasMigratedToMultiUser2",
+        ];
+        entries = [NSMutableArray arrayWithCapacity:key_names.count];
+        for (NSString *name in key_names)
+        {
+            NSString *value = @"true";
+            if ([name hasPrefix:@"oauth2RefreshToken"]) value = refresh;
+            else if ([name hasPrefix:@"accessToken"]) value = access;
+            else if ([name hasPrefix:@"expiresAtSecSinceEpoch"]) value = expires.stringValue;
+            else if ([name isEqualToString:@"userid"]) value = user;
+            [entries addObject:value];
+        }
+
+        added = [NSMutableString string];
+        [added appendFormat:@"\n[" STUDIO_REG_MGR "] %ld\n", (long)time(NULL)];
+        [added appendFormat:@"\"EncryptionKey\"=hex:%@\n", madeira_reg_hex(key)];
+        for (NSUInteger n = 0; n < key_names.count; n++)
+        {
+            NSString *target = [NSString stringWithFormat:@"%s%@", kStudioAuthBase, key_names[n]];
+            encrypted = madeira_rc4([entries[n] dataUsingEncoding:NSUTF8StringEncoding],
+                                    key.bytes, key.length);
+            [added appendFormat:@"\n[" STUDIO_REG_MGR "\\\\Generic: %@] %ld\n", target, (long)time(NULL)];
+            [added appendFormat:@"@=\"%@\"\n", target];
+            [added appendString:@"\"Flags\"=dword:00000000\n"];
+            [added appendString:@"\"Type\"=dword:00000001\n"];         /* CRED_TYPE_GENERIC */
+            [added appendString:@"\"Persist\"=dword:00000002\n"];      /* local machine */
+            [added appendFormat:@"\"LastWritten\"=hex:%@\n", madeira_reg_hex(last_written)];
+            [added appendFormat:@"\"Password\"=hex:%@\n", madeira_reg_hex(encrypted)];
+        }
+
+        NSError *error = nil;
+        if (![[reg stringByAppendingString:added] writeToFile:reg_path atomically:YES
+                                                     encoding:NSUTF8StringEncoding error:&error])
+        {
+            LOG("studio-auth: writing user.reg failed: %{public}s", error.localizedDescription.UTF8String);
+            return;
+        }
+        [NSFileManager.defaultManager removeItemAtPath:seed_path error:NULL];
+        LOG("studio-auth: seeded %d credentials for user %{public}s",
+            (int)key_names.count, user.UTF8String);
     }
 }
 
