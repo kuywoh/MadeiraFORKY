@@ -537,7 +537,8 @@ static NSData * madeira_existing_encryption_key(NSString *reg)
 void madeira_seed_studio_auth(const char *prefix_path)
 {
     @autoreleasepool {
-        NSString *prefix, *seed_path, *reg_path, *reg, *added;
+        NSString *prefix, *seed_path, *reg_path, *reg;
+        NSMutableString *added;
         NSDictionary *seed;
         NSData *seed_data, *key, *encrypted, *last_written;
         NSMutableArray *entries;
