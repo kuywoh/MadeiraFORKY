@@ -687,6 +687,51 @@ static void madeira_collect_version_keys(id registry, NSMutableArray *keys)
     }
 }
 
+/* Studio's "OTADataCache/OTAData.json" only exists once Studio has run, so on
+ * a fresh prefix the version key would be missing and the seed would skip.
+ * Read the VS_VERSIONINFO ProductVersion string out of the image instead
+ * ("0, 743, 0, 7431133") and turn it into the "0.743.0.7431133" form the
+ * registry keys use. */
+static NSString *madeira_pe_product_version(NSString *exe_path)
+{
+    /* UTF-16LE "ProductVersion\0" (VS_VERSIONINFO String szKey). */
+    static const unsigned char key[] = {
+        'P',0,'r',0,'o',0,'d',0,'u',0,'c',0,'t',0,'V',0,
+        'e',0,'r',0,'s',0,'i',0,'o',0,'n',0,0,0,
+    };
+
+    NSData *raw = [NSData dataWithContentsOfFile:exe_path
+        options:NSDataReadingMappedIfSafe error:NULL];
+    if (!raw) return nil;
+
+    NSRange hit = [raw rangeOfData:[NSData dataWithBytes:key length:sizeof key]
+        options:0 range:NSMakeRange(0, raw.length)];
+    if (hit.location == NSNotFound) return nil;
+
+    NSUInteger p = hit.location + sizeof key;
+    NSMutableString *out = [NSMutableString string];
+    while (p + 1 < raw.length && out.length < 64)
+    {
+        unichar c = (unichar)(raw[p] | (raw[p + 1] << 8));
+        if (!c) break;
+        [out appendFormat:@"%C", c];
+        p += 2;
+    }
+    return out.length ? out : nil;
+}
+
+static NSString *madeira_version_key_from_product(NSString *product)
+{
+    NSMutableArray *parts = [NSMutableArray array];
+
+    for (NSString *s in [product componentsSeparatedByString:@","])
+    {
+        s = [s stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (s.length) [parts addObject:s];
+    }
+    return [parts componentsJoinedByString:@"."];
+}
+
 void madeira_seed_studio_plugins(const char *prefix_path)
 {
     @autoreleasepool {
@@ -736,6 +781,15 @@ void madeira_seed_studio_plugins(const char *prefix_path)
             for (NSString *key in keys)
                 if (!version_key || madeira_version_key_cmp(key, version_key) > 0) version_key = key;
             if (!version_key)
+                for (NSString *vdir in version_dirs)
+                {
+                    if (![vdir hasPrefix:@"version-"]) continue;
+                    version_key = madeira_version_key_from_product(
+                        madeira_pe_product_version([versions stringByAppendingPathComponent:
+                            [vdir stringByAppendingPathComponent:@"RobloxStudioBeta.exe"]]));
+                    if (version_key) break;
+                }
+            if (!version_key)
             {
                 LOG("studio-plugins: no Studio version key yet, skipping");
                 continue;
@@ -753,12 +807,15 @@ void madeira_seed_studio_plugins(const char *prefix_path)
             for (NSString *name in data.allKeys)
             {
                 id entry = data[name];
-                id current = [entry isKindOfClass:NSDictionary.class]
-                    ? entry[@"currentDeployment"][version_key] : nil;
+                id deployments = [entry isKindOfClass:NSDictionary.class]
+                    ? entry[@"currentDeployment"] : nil;
+                id current = [deployments isKindOfClass:NSDictionary.class]
+                    ? deployments[version_key] : nil;
                 NSString *sub, *path;
 
                 if (![current isKindOfClass:NSDictionary.class]) continue;
-                sub = [entry[@"isStandalone"] boolValue] ? @"BuiltInStandalonePlugins" : @"BuiltInPlugins";
+                sub = [[entry isKindOfClass:NSDictionary.class] ? entry[@"isStandalone"] : nil
+                    boolValue] ? @"BuiltInStandalonePlugins" : @"BuiltInPlugins";
                 path = [[deployed stringByAppendingPathComponent:sub]
                     stringByAppendingPathComponent:
                         [NSString stringWithFormat:@"%@_%@.rbxm", name, current[@"pluginVersion"]]];
