@@ -158,6 +158,10 @@ int wineserver_start(const char *prefix_path) {
          * port; registering them in the OTA store is the path that loads. */
         extern void madeira_seed_studio_plugins(const char *prefix_path);
         madeira_seed_studio_plugins(prefix_path);
+        /* Studio 0.743 exits on startup when 0.744 is on the CDN; the bundled
+         * installer cannot run here, so hide it and Studio keeps going. */
+        extern void madeira_disable_studio_update(const char *prefix_path);
+        madeira_disable_studio_update(prefix_path);
     }
 
     {

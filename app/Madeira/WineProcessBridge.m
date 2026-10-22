@@ -793,6 +793,47 @@ void madeira_seed_studio_plugins(const char *prefix_path)
     }
 }
 
+/* Once a newer Studio build reaches the CDN, the installed one launches
+ * RobloxStudioInstaller.exe on startup and exits ("About to exit application
+ * due to update"). Under Wine the installer only shows a blank window, so
+ * Studio never starts again. Hiding the installer makes
+ * UpdateUtils::requestInstallerUpdate() take its "missing installer" path and
+ * return false, and the caller then keeps running. */
+void madeira_disable_studio_update(const char *prefix_path)
+{
+    @autoreleasepool {
+        NSFileManager *fm = NSFileManager.defaultManager;
+        NSString *prefix, *users_dir;
+        NSArray *users;
+
+        if (!prefix_path || !*prefix_path) return;
+        prefix = [NSString stringWithUTF8String:prefix_path];
+        users_dir = [prefix stringByAppendingPathComponent:@"drive_c/users"];
+        users = [fm contentsOfDirectoryAtPath:users_dir error:NULL];
+
+        for (NSString *user in users)
+        {
+            NSString *versions = [users_dir stringByAppendingPathComponent:
+                [user stringByAppendingPathComponent:@"AppData/Local/Roblox/Versions"]];
+            NSArray *dirs = [fm contentsOfDirectoryAtPath:versions error:NULL];
+
+            for (NSString *dir in dirs)
+            {
+                NSString *installer, *hidden;
+
+                if (![dir hasPrefix:@"version-"]) continue;
+                installer = [[versions stringByAppendingPathComponent:dir]
+                    stringByAppendingPathComponent:@"RobloxStudioInstaller.exe"];
+                hidden = [installer stringByAppendingString:@".disabled"];
+                if (![fm fileExistsAtPath:installer]) continue;
+                [fm removeItemAtPath:hidden error:NULL];
+                if ([fm moveItemAtPath:installer toPath:hidden error:NULL])
+                    LOG("studio-update: hid %{public}s", installer.UTF8String);
+            }
+        }
+    }
+}
+
 /* ===========================================================================
  * WoW64: 32-bit (i386) targets. See docs/WOW64.md.
  *
