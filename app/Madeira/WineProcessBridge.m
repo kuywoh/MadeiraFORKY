@@ -710,9 +710,10 @@ static NSString *madeira_pe_product_version(NSString *exe_path)
 
     NSUInteger p = hit.location + sizeof key;
     NSMutableString *out = [NSMutableString string];
+    const unsigned char *b = raw.bytes;
     while (p + 1 < raw.length && out.length < 64)
     {
-        unichar c = (unichar)(raw[p] | (raw[p + 1] << 8));
+        unichar c = (unichar)(b[p] | (b[p + 1] << 8));
         if (!c) break;
         [out appendFormat:@"%C", c];
         p += 2;
@@ -726,8 +727,8 @@ static NSString *madeira_version_key_from_product(NSString *product)
 
     for (NSString *s in [product componentsSeparatedByString:@","])
     {
-        s = [s stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-        if (s.length) [parts addObject:s];
+        NSString *t = [s stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (t.length) [parts addObject:t];
     }
     return [parts componentsJoinedByString:@"."];
 }
