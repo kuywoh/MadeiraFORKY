@@ -100,6 +100,8 @@ jobs:
           EVR_DLL=app/Madeira/arm64ec-windows/evr.dll
           test -s "$EVR_DLL"
           test -s "$APISET_DLL"
+          test -s app/Madeira/arm64ec-windows/explorerframe.dll
+          test -s app/Madeira/arm64ec-windows/shell32.dll
           echo 'Verified the ARM64EC API-set schema, EVR, and DXVA2 modules arrived in Madeira app resources; PE metadata was checked in the producer job.'
 
       - name: Verify the ARM64 Wine browser launcher arrived in app resources

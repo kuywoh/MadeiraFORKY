@@ -83,10 +83,10 @@ jobs:
           cp "$WINEBROWSER" app/Madeira/aarch64-windows/winebrowser.exe
           make -C wine/build-macos/server -j"$JOBS"
 
-      - name: Build ARM64EC API-set schema, DWrite, DXVA2, and EVR modules
+      - name: Build ARM64EC API-set schema, DWrite, DXVA2, EVR, shell32, and ExplorerBrowser modules
         env:
           DEST: ${{ runner.temp }}/wine-pe
-        run: bash build/wine-pe/build-modules.sh apisetschema dwrite dxva2 evr
+        run: bash build/wine-pe/build-modules.sh apisetschema dwrite dxva2 evr shell32 explorerframe
 
       - name: Stage Wine API-set schema and EVR modules for the app artifact
         run: |
@@ -94,20 +94,32 @@ jobs:
           APISET_DLL="$RUNNER_TEMP/wine-pe/apisetschema.dll"
           EVR_DLL="$RUNNER_TEMP/wine-pe/evr.dll"
           DXVA2_DLL="$RUNNER_TEMP/wine-pe/dxva2.dll"
+          SHELL32_DLL="$RUNNER_TEMP/wine-pe/shell32.dll"
+          EXPLORERFRAME_DLL="$RUNNER_TEMP/wine-pe/explorerframe.dll"
           test -s "$APISET_DLL"
           test -s "$EVR_DLL"
           test -s "$DXVA2_DLL"
+          test -s "$SHELL32_DLL"
+          test -s "$EXPLORERFRAME_DLL"
           llvm-readobj --file-headers --sections "$APISET_DLL" > "$RUNNER_TEMP/apisetschema-readobj.txt"
           llvm-readobj --file-headers --coff-exports "$EVR_DLL" > "$RUNNER_TEMP/evr-readobj.txt"
           llvm-readobj --file-headers --coff-exports "$DXVA2_DLL" > "$RUNNER_TEMP/dxva2-readobj.txt"
+          llvm-readobj --file-headers --coff-exports "$SHELL32_DLL" > "$RUNNER_TEMP/shell32-readobj.txt"
+          llvm-readobj --file-headers --coff-exports "$EXPLORERFRAME_DLL" > "$RUNNER_TEMP/explorerframe-readobj.txt"
           grep -Fq '.apiset' "$RUNNER_TEMP/apisetschema-readobj.txt"
           grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: 0xA641' "$RUNNER_TEMP/evr-readobj.txt"
           grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: 0xA641' "$RUNNER_TEMP/dxva2-readobj.txt"
+          grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: 0xA641' "$RUNNER_TEMP/shell32-readobj.txt"
+          grep -Eq 'Machine: IMAGE_FILE_MACHINE_ARM64EC|Machine: 0xA641' "$RUNNER_TEMP/explorerframe-readobj.txt"
           grep -Fq 'MFCreateVideoSampleFromSurface' "$RUNNER_TEMP/evr-readobj.txt"
+          grep -Fq 'SHBrowseForFolderW' "$RUNNER_TEMP/shell32-readobj.txt"
+          grep -Fq 'DllGetClassObject' "$RUNNER_TEMP/explorerframe-readobj.txt"
           mkdir -p app/Madeira/arm64ec-windows
           cp "$APISET_DLL" app/Madeira/arm64ec-windows/apisetschema.dll
           cp "$EVR_DLL" app/Madeira/arm64ec-windows/evr.dll
           cp "$DXVA2_DLL" app/Madeira/arm64ec-windows/dxva2.dll
+          cp "$SHELL32_DLL" app/Madeira/arm64ec-windows/shell32.dll
+          cp "$EXPLORERFRAME_DLL" app/Madeira/arm64ec-windows/explorerframe.dll
           echo 'Verified Wine API-set schema has a .apiset section; EVR and DXVA2 are ARM64EC PEs, and EVR exports MFCreateVideoSampleFromSurface.'
 
       - name: Build iOS FreeType library
@@ -147,6 +159,8 @@ jobs:
             app/Madeira/arm64ec-windows/dxva2.dll
             app/Madeira/arm64ec-windows/evr.dll
             app/Madeira/arm64ec-windows/apisetschema.dll
+            app/Madeira/arm64ec-windows/shell32.dll
+            app/Madeira/arm64ec-windows/explorerframe.dll
             app/Madeira/aarch64-windows/winebrowser.exe
           if-no-files-found: ignore
           retention-days: 14
