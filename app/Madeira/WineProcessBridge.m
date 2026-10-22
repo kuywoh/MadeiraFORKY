@@ -711,7 +711,6 @@ void madeira_seed_studio_plugins(const char *prefix_path)
             NSString *version_key = nil;
             NSArray *version_dirs;
             NSMutableSet *known = [NSMutableSet set];
-            NSUInteger seeded = 0;
 
             version_dirs = [fm contentsOfDirectoryAtPath:versions error:NULL];
             if (!version_dirs.count) continue;
@@ -743,6 +742,32 @@ void madeira_seed_studio_plugins(const char *prefix_path)
             }
 
             NSMutableDictionary *data = registry[@"data"];
+            NSString *deployed = [ota_dir stringByAppendingPathComponent:@"Deployed"];
+            NSString *standalone = [deployed stringByAppendingPathComponent:@"BuiltInStandalonePlugins"];
+            NSUInteger seeded = 0, pruned = 0;
+
+            /* The versioned store validates every current-deployment entry
+             * against its file and wipes the whole store when one is missing
+             * ("File Store clear success" / "is recovering"), so drop the
+             * entries that lost their files before adding ours. */
+            for (NSString *name in data.allKeys)
+            {
+                id entry = data[name];
+                id current = [entry isKindOfClass:NSDictionary.class]
+                    ? entry[@"currentDeployment"][version_key] : nil;
+                NSString *sub, *path;
+
+                if (![current isKindOfClass:NSDictionary.class]) continue;
+                sub = [entry[@"isStandalone"] boolValue] ? @"BuiltInStandalonePlugins" : @"BuiltInPlugins";
+                path = [[deployed stringByAppendingPathComponent:sub]
+                    stringByAppendingPathComponent:
+                        [NSString stringWithFormat:@"%@_%@.rbxm", name, current[@"pluginVersion"]]];
+                if (![fm fileExistsAtPath:path])
+                {
+                    [data removeObjectForKey:name];
+                    pruned++;
+                }
+            }
             [known addObjectsFromArray:data.allKeys];
 
             for (NSString *vdir in version_dirs)
@@ -756,11 +781,24 @@ void madeira_seed_studio_plugins(const char *prefix_path)
                 files = [fm contentsOfDirectoryAtPath:plugins error:NULL];
                 for (NSString *file in files)
                 {
-                    NSString *name;
+                    NSString *name, *source, *target;
 
                     if (![file.pathExtension isEqualToString:@"rbxm"]) continue;
                     name = file.stringByDeletingPathExtension;
                     if (!name.length || [known containsObject:name]) continue;
+                    source = [plugins stringByAppendingPathComponent:file];
+                    target = [standalone stringByAppendingPathComponent:
+                        [NSString stringWithFormat:@"%@_%d.rbxm", name, 999999]];
+
+                    [fm createDirectoryAtPath:standalone withIntermediateDirectories:YES
+                        attributes:nil error:NULL];
+                    /* Hard link: the deployed copy must exist for the store to
+                     * validate, but it is the same bytes as the shipped file. */
+                    if (![fm fileExistsAtPath:target] &&
+                        ![fm linkItemAtPath:source toPath:target error:NULL] &&
+                        ![fm copyItemAtPath:source toPath:target error:NULL])
+                        continue;
+
                     data[name] = @{
                         @"pluginAssetId": @(-1),
                         @"isStandalone": @YES,
@@ -775,7 +813,7 @@ void madeira_seed_studio_plugins(const char *prefix_path)
                 }
             }
 
-            if (!seeded) continue;
+            if (!seeded && !pruned) continue;
             {
                 NSData *out = [NSJSONSerialization dataWithJSONObject:registry options:0 error:NULL];
 
@@ -787,8 +825,8 @@ void madeira_seed_studio_plugins(const char *prefix_path)
                     continue;
                 }
             }
-            LOG("studio-plugins: registered %d built-ins for %{public}s (studio %{public}s)",
-                (int)seeded, user.UTF8String, version_key.UTF8String);
+            LOG("studio-plugins: registered %d built-ins, pruned %d stale entries for %{public}s (studio %{public}s)",
+                (int)seeded, (int)pruned, user.UTF8String, version_key.UTF8String);
         }
     }
 }
