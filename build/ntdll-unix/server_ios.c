@@ -2610,13 +2610,28 @@ unsigned int server_wait( const union select_op *select_op, data_size_t size, UI
          * Slice STATUS_TIMEOUT never escapes to the caller. */
         if (abs_timeout == TIMEOUT_INFINITE)
         {
-            timeout_t slice = -2500000;                  /* 250 ms, relative */
             data_size_t slice_size = size;
             int slice_waits = 0;
 
             extern volatile long long ios_xp_wait_slices, ios_xp_slice_wakes;
             for (;;)
             {
+                /* 250 ms slice, folded against the monotonic clock exactly
+                 * like the caller-relative path above does. A bare -2500000
+                 * is NOT that encoding: server_select() forwards it verbatim
+                 * as req->timeout, the server's abstime_to_timeout() tests
+                 * -abstime < monotonic_time (2.5e6 < uptime ticks), answers 0
+                 * = "already expired", and the slice returns STATUS_TIMEOUT
+                 * without ever parking. Run #34 (2.1.8) measured exactly
+                 * that: slices ~400k/s, all empty, cum 16.7M in 58 s, ~200k
+                 * select req / 0.5 s, cpu ~1000% -- every INFINITE wait became
+                 * a busy re-select and Studio never reached its first frame. */
+                LARGE_INTEGER now;
+                timeout_t slice;
+
+                NtQueryPerformanceCounter( &now, NULL );
+                slice = -2500000 - now.QuadPart;
+
                 __sync_fetch_and_add( &ios_xp_wait_slices, 1 );
                 ret = server_select( select_op, slice_size, flags, slice, NULL, &apc );
                 if (ret != STATUS_TIMEOUT) break;
