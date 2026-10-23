@@ -551,17 +551,15 @@ struct LibraryEntry: Codable, Identifiable {
             unsetenv("DXMT_WSI_MONITOR_IDENTITY")
             unsetenv("DXMT_WSI_MODE_TABLE")
         }
-        // Fastsync's per-game switches. ml1320 (studio-wedge A/B): the
-        // instrumented place-open run wedged with the default fastsync
-        // auto state (cells on, wake path never armed), so until that A/B
-        // clears this build exports plain Wine sync ("0") when the user
-        // did not pick a value: both halves (ntdll sync.c, server
-        // event.c/semaphore.c) then take the upstream paths. A value in
+        // Fastsync's per-game switches. ml1320 (studio-wedge A/B): the A/B
+        // cleared (run #31's plain Wine sync wedged with the same fingerprint
+        // as #30's fastsync), so the default export is "auto" again; the
+        // comment and banner stay until the wedge is fixed. A value in
         // the game's own cfg still wins.
         if SyncEngine.current == .fastsync {
-            let mode = MadeiraConfig.get("env.MADEIRA_FASTSYNC") ?? "0"
+            let mode = MadeiraConfig.get("env.MADEIRA_FASTSYNC") ?? "auto"
             setenv("MADEIRA_FASTSYNC", fastSync == false ? "0" : mode, 1)
-            fputs("[frontend] ml1320 sync: plain Wine sync for the studio-wedge A/B, MADEIRA_FASTSYNC=\(mode) (0 = plain)\n", stderr)
+            fputs("[frontend] ml1320 sync: engine export MADEIRA_FASTSYNC=\(mode) (A/B #31 cleared: wedge repeats on plain Wine sync too)\n", stderr)
             // Only a game's own choice; otherwise madeira.cfg's env.MADEIRA_FASTSYNC_SEM applies.
             if let sem = semaphoreFastPath { setenv("MADEIRA_FASTSYNC_SEM", sem ? "1" : "0", 1) }
             else { unsetenv("MADEIRA_FASTSYNC_SEM") }
