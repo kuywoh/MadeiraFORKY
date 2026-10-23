@@ -87,6 +87,48 @@ the question that has been open since #30.
       and the timestamp when it stops changing.
 - [ ] Export the full log, not a tail.
 
+### One attempt per launch
+
+The failure does not clear: the window greys out (owner window disabled while a
+modal/synchronous operation never returns) and stays that way. So an "attempt"
+is an **app launch**, not a click — a failed click can only be escaped by
+relaunching. Do not plan a rapid-fire loop of ten attempts in one session.
+
+If repeatability is worth the relaunches, five is enough to separate "every
+time" from "sometimes", and each one needs only: launch, click the repro, wait
+until grey, export. Record it as:
+
+| launch | repro | seconds to grey | still grey after 5 min | notes |
+|---|---|---|---|---|
+| 1 | `File > New` | | | |
+| 2 | `File > New` | | | |
+
+Stop after two clean greys if the log already answers the question below — the
+relaunches only buy probability, not a new mechanism.
+
+### Capture while it is greyed, not after a restart
+
+Greyed is the only state where the blocked thread still exists. Before anything
+is closed, these three blocks matter:
+
+1. `[xp-api] ... slices N/s ... cum X` — is the healer still cycling while the
+   window is grey, or has the count frozen?
+2. `[srv-queues]` (dumped every ~10 s) — find Studio's UI thread. Three readings:
+   - `send_pend=N` on the receiver and `awaiting reply: ... replied=0` on the
+     sender — the UI thread is blocked in a cross-thread `SendMessage`, and the
+     reply is what never arrives.
+   - `recv_in_prog=1` with `post=0` — the UI thread is idle in its message
+     pump, i.e. **not** blocked in the load; then the greyed window is an
+     invisible/never-shown modal and the load path is innocent.
+   - `wake=00000000/00000000` with `post>0` — messages piled up and no wake was
+     delivered (the ml584 shape behind the Start-button bug).
+3. `[srv-stuck]` for that same tid — its `caller=`/`ret_pc` and handle types say
+   what it is parked on, and LINKED vs NO-WAIT says whether the server even has
+   a wait for it.
+
+A log exported after a restart contains none of this — the interesting state is
+gone.
+
 ## Decision matrix
 
 Judge from these four markers only: `slices`/`cum` rate, `[srv-stuck]`,

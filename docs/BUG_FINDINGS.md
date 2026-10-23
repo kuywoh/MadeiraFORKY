@@ -110,6 +110,26 @@ slices` is normal even when healthy, so the empty fraction proves nothing.
 The original symptom, still unexplained: a pool of threads parked on `INFINITE`
 waits whose events were signalled, yet whose waiters never released.
 
+### How it presents (observed, user, #30–#34)
+
+`File > New` or opening a `.rbxl` **greys the window out** and it stays that way
+indefinitely; it never recovers, so a failed attempt can only be escaped by
+relaunching the app. That is the signature of a *disabled owner window*: Windows
+greys a window's controls while a modal or synchronous operation it owns is in
+progress. Two shapes fit, and they lead to different code:
+
+- **A — the UI thread is inside the blocking call** (place load / `CreateProcess`
+  / COM) and that call never returns.
+- **B — a modal was entered but its window never became visible**, so the app
+  looks greyed with nothing on top; the load path may not be involved at all.
+
+Not a crash and not a dead renderer: the process is alive and holding the CPU
+(#34) while the window is disabled. Distinguish A from B with the `[srv-queues]`
+readings in `docs/RUN35_CHECKLIST.md` (Phase C).
+
+Do not design this as a rapid try-loop: each attempt costs an app restart, so
+repeatability is measured in launches, not clicks.
+
 ### The signature, in the instrument's own vocabulary
 
 `[srv-stuck]` prints, per handle (`build/wineserver/queue_ios.c:4456`):
