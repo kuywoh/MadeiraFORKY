@@ -692,6 +692,33 @@ static int ios_lookup_thread(thread_t mach_thread, uintptr_t *teb_out, void **tr
     return 0;
 }
 
+/* ml1132: a fexlock holder that is RUNNING on another CPU makes
+ * thread_get_state() fail, and the ml443 census then printed pc=0x0 with an
+ * all-zero backtrace -- the one fact that names the stuck code was dropped
+ * exactly when it mattered.  Run #35 (2.1.9) hit it twice: two threads holding
+ * the FEX shared lock reported "run_state=0 susp=0 pc=0x0 ... bt: 0 0 0 0",
+ * while two other threads burned 100% cpu each in an atomic acquire loop on an
+ * owner word that never cleared.  Suspend for the length of the read, then
+ * resume: the suspend count returns to where it started and the state is
+ * valid. */
+static int ios_peek_thread_state( thread_t th, arm_thread_state64_t *st )
+{
+    mach_msg_type_number_t cnt = ARM_THREAD_STATE64_COUNT;
+
+    if (thread_get_state( th, ARM_THREAD_STATE64, (thread_state_t)st, &cnt ) == KERN_SUCCESS)
+        return 1;
+    if (thread_suspend( th ) != KERN_SUCCESS)
+        return 0;
+    cnt = ARM_THREAD_STATE64_COUNT;
+    if (thread_get_state( th, ARM_THREAD_STATE64, (thread_state_t)st, &cnt ) != KERN_SUCCESS)
+    {
+        thread_resume( th );
+        return 0;
+    }
+    thread_resume( th );
+    return 1;
+}
+
 /* ml398 (task #60): the webhelper chrome_ipc pump thread wakes ONCE on
  * MasterStream_Event, reads a perfectly valid hello ([chrome-mem] proved the
  * bytes cross), then goes silent — no reply, no re-wait, no further wrapped
@@ -736,7 +763,6 @@ static void ios_lock_census(void)
             unsigned int ctid = 0;
             mach_vm_size_t mgot = 0;
             arm_thread_state64_t st;
-            mach_msg_type_number_t cnt = ARM_THREAD_STATE64_COUNT;
             struct thread_basic_info bi;
             mach_msg_type_number_t bcnt = THREAD_BASIC_INFO_COUNT;
             uint64_t fp, frames[8] = { 0 };
@@ -825,8 +851,12 @@ static void ios_lock_census(void)
                                 cand, (unsigned long long)cteb, (unsigned long long)held);
                 }
             }
-            if (thread_get_state( cand, ARM_THREAD_STATE64, (thread_state_t)&st, &cnt ) != KERN_SUCCESS)
+            if (!ios_peek_thread_state( cand, &st ))
+            {
                 memset( &st, 0, sizeof(st) );
+                dprintf(2, "[census-hold]   state UNREADABLE even after suspend teb=0x%llx tid=%04x\n",
+                        (unsigned long long)cteb, ctid);
+            }
             fp = st.__fp;
             for (fi = 0; fi < 8 && fp > 0x1000; fi++)
             {
@@ -853,9 +883,9 @@ static void ios_lock_census(void)
                             (unsigned long long)crumb_heap);
             }
             dprintf(2, "[census-hold] idx=%d port=0x%x teb=0x%llx tid=%04x HOLDS fexlock @0x%llx "
-                    "run_state=%d susp=%d pc=0x%llx lr=0x%llx sp=0x%llx bt: %llx %llx %llx %llx %llx %llx %llx %llx\n",
+                    "srw=0x%llx run_state=%d susp=%d pc=0x%llx lr=0x%llx sp=0x%llx bt: %llx %llx %llx %llx %llx %llx %llx %llx\n",
                     i, cand, (unsigned long long)cteb, ctid, (unsigned long long)held,
-                    bi.run_state, bi.suspend_count,
+                    (unsigned long long)srw_held, bi.run_state, bi.suspend_count,
                     (unsigned long long)arm_thread_state64_get_pc( st ),
                     (unsigned long long)st.__lr,
                     (unsigned long long)arm_thread_state64_get_sp( st ),
@@ -872,7 +902,15 @@ static void ios_lock_census(void)
                 extern int ios_alert_waiter_lookup( unsigned int tid, const void **addr, int *age_s, int *inf );
                 const void *waddr = 0;
                 int wage = 0, winf = 0;
-                if (ios_alert_waiter_lookup( (unsigned int)ctid, &waddr, &wage, &winf ))
+                /* ml1132: silence here used to mean either "not parked" or
+                 * "lookup unavailable"; say which.  A holder that is NOT in
+                 * any alert wait while others spin on its lock is the
+                 * livelock signature. */
+                if (!ios_alert_waiter_lookup( (unsigned int)ctid, &waddr, &wage, &winf ))
+                {
+                    dprintf(2, "[census-hold]   WAITING-ON none (not in any alert wait) -- holder is running rev=ml1132\n");
+                }
+                else
                 {
                     unsigned int w = 0xdeaddead;
                     if (!((uintptr_t)waddr & 1) && (uintptr_t)waddr > 0x10000 && (uintptr_t)waddr < 0x8000000000ULL)

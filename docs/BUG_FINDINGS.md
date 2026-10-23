@@ -23,9 +23,9 @@ or a bug introduced while chasing it.
 | #30–#32 | 2.1.5, 2.1.6 | Place-load wedge at the spinner ([srv-stuck] pool, `[evt-life]` SET with `releases=0`) | Reported, not measured here |
 | #33 | 2.1.7 (4) | `slices 0/s` on all 349 `[xp-api]` rows; CI green; `[srv-stuck]` still catching INF waits | **Healer never ran** — see Bug 1 |
 | #34 | 2.1.8 (4) | Ran 67 s, ~1000% CPU, `slices` ~400k/s, `cum` 16.7M, Studio never reached first frame | **New regression** — see Bug 2 |
-| #35 | 2.1.9 | Pending | First honest test of the healer — see `docs/RUN35_CHECKLIST.md` |
+| #35 | 2.1.9 (4) | Slices normal (21/s, `cum` 3172 in 126 s) but Studio still stops at the splash; ~600–950% CPU from two spinning threads; 12 threads parked >60 s | **Bug 2 fixed, different blocker** — see Bug 4 |
 
-#33 is second-hand (as reported); #34 was measured directly from the device log.
+#33 is second-hand (as reported); #34 and #35 were measured directly from the device logs.
 
 ---
 
@@ -235,10 +235,75 @@ process, not the whole session.
 4. Does `[no-footprint] pool applied=false` matter for Studio at all? Untested;
    do not fold it into the wedge investigation.
 
-## Files changed for 2.1.9 (uncommitted)
+## Bug 4 — the splash stall is a lock deadlock, not an API gap (#35, 2.1.9)
+
+**Observed.** Studio `0.743.0.7431133` under Wine 11.4 logs a clean startup
+(version, GUAC, fast flags, Qt event loop at 15.6 s, reflection DB 8609 entries at
+16.1 s) and then **stops with no error** — the Qt splash never gives way to the
+main window. `[build] v2.1.9 (4)` is in the Madeira log, so the healer was
+actually running.
+
+**Observed — the healer itself is fine.** `slices 21/s (empty 21/s) cum 3172`
+after 126 s, against `~400k/s` and `cum 16.7M` in #34. Bug 2 measures fixed: the
+slice is parked, not re-selected in a µs loop.
+
+**Observed — the CPU is going somewhere else.** Two threads sit at 100% duty on
+the *same* host PC for the whole run:
+
+```
+[cpu-prof] 49.1% of running (duty 400/400) " RBX Worker G" hostPC=0x315411d2c
+[cpu-prof] 49.1% of running (duty 400/400) ""               hostPC=0x315411d2c
+```
+
+Disassembled, that PC is an 8-byte exclusive-monitor loop — `ldaxr; cbnz back`
+with `dmb ish` + `yield` — i.e. an unbounded acquire spin. The register dump
+shows the word it is spinning on is another thread's **tagged TEB**
+(`x9=0x457e00001` = own TEB|1 to install, `x11=0x457e30001` = current owner).
+An owner word that never clears pins every acquirer at 100% and never lets them
+block.
+
+**Observed — the holder is not waiting on anything.** The existing census names
+two threads holding the FEX shared lock, and neither has a state it could read:
+
+```
+[census-hold] idx=30 port=0xd50b teb=0x457e20000 tid=00b8 HOLDS fexlock @0x3710f0108 run_state=0 susp=0 pc=0x0 lr=0x0 sp=0x0 bt: 0 0 0 0 0 0 0 0
+[census-hold] idx=18 port=0x5b03 teb=0x457ec0000 tid=0088 HOLDS fexlock @0x39a0f108 run_state=0 susp=0 pc=0x0 lr=0x0 sp=0x0 bt: 0 0 0 0 0 0 0 0
+```
+
+No `WAITING-ON` sub-line was printed for either, and `[waiters]` shows 12 threads
+parked **INF for >60 s**. Studio's UI thread (`tid=0024`) never appears in either
+list and `[srv-queues] tid=0024 … send_pend=0 post=0 recv_in_prog=0` says it is
+not inside a server call — so it is blocked in userspace, behind this lock.
+
+**Inferred (the branch this selects).** A lock whose owner word is a TEB that is
+neither running-to-release nor parked-on-a-wake = a **leaked or never-released
+lock**, the same class the `[lock-reap]` path already repairs for *dead* holders.
+This is not a lost wake, and slicing INFINITE waits cannot help: the wait that
+would fix it is an ordinary user-mode lock acquisition.
+
+**Gap in the instrument (ml1132).** `thread_get_state()` fails on a thread that
+is running on another CPU, so the census printed `pc=0x0` + an all-zero backtrace
+for exactly the threads whose stack would name the stuck code, and the missing
+`WAITING-ON` line could not distinguish "not parked" from "lookup failed".
+2.1.10 suspends the holder for the duration of the read and says
+`WAITING-ON none` explicitly.
+
+**Open.** Whether the leaked owner word is a dead thread's TEB (reapable) or a
+live thread stuck inside the lock — run #36's holder stack answers it.
+
+## Files changed for 2.1.9 (pushed as `784f91d`)
 
 - `build/ntdll-unix/server_ios.c` — slice folded against `NtQueryPerformanceCounter()`,
   comment records the encoding trap and the #34 numbers.
 - `app/Madeira.xcodeproj/project.pbxproj` — `MARKETING_VERSION = 2.1.9`.
 - `docs/RUN35_CHECKLIST.md` — the device procedure.
 - `docs/BUG_FINDINGS.md` — this file.
+
+## Files changed for 2.1.10
+
+- `build/ntdll-unix/signal_arm64_ios.c` — `ios_peek_thread_state()` (ml1132):
+  suspend → read → resume in the fexlock census, so a holder that is running on
+  another CPU yields a real pc/lr/backtrace instead of `pc=0x0`; the census line
+  now also prints the slot-6 SRW stamp, and a holder with no alert wait prints
+  `WAITING-ON none` instead of nothing.
+- `app/Madeira.xcodeproj/project.pbxproj` — `MARKETING_VERSION = 2.1.10`.
