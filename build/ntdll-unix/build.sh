@@ -178,6 +178,11 @@ for src in $WINE_SRC/dlls/ntdll/unix/*.c; do
             compile_one "$BUILD_DIR/process_ios.c" "process"
             ;;
         server)
+            # compile_one "$BUILD_DIR/server_ios.c" "server":
+            # this app-repo overlay REPLACES the submodule's
+            # dlls/ntdll/unix/server.c in the built ntdll unix. Any change
+            # to the submodule server.c must be re-applied here (2.1.7's
+            # slice cap was lost exactly this way -> 2.1.8 re-applied).
             compile_one "$BUILD_DIR/server_ios.c" "server"
             ;;
         env)

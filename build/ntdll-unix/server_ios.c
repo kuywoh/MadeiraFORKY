@@ -1365,12 +1365,13 @@ static void ios_xp_api_report( const char *wall, double wall_s )
                 n += snprintf( line + n, sizeof(line) - n,
                                " | SetEvent %.0f/s ResetEvent %.0f/s Pulse %.0f/s | wait1 %.0f/s waitN %.0f/s polls %.0f/s (empty %.0f/s)"
                                " | yield %.0f/s (slept %.0f/s) | delay %.0f/s [0 %.0f <1ms %.0f <5ms %.0f <20ms %.0f >=20ms %.0f inf %.0f]"
-                               " | alert wait %.0f/s wake %.0f/s | slices %.0f/s (empty %.0f/s)",
+                               " | alert wait %.0f/s wake %.0f/s | slices %.0f/s (empty %.0f/s) cum %lld (wake %lld)",
                                XPR(u[0] - u_prev[0]), XPR(u[1] - u_prev[1]), XPR(u[2] - u_prev[2]), XPR(u[3] - u_prev[3]), XPR(u[4] - u_prev[4]),
                                XPR(u[5] - u_prev[5]), XPR(u[6] - u_prev[6]), XPR(u[7] - u_prev[7]), XPR(u[8] - u_prev[8]), XPR(u[9] - u_prev[9]),
                                XPR(u[10] - u_prev[10]), XPR(u[11] - u_prev[11]), XPR(u[12] - u_prev[12]), XPR(u[13] - u_prev[13]), XPR(u[14] - u_prev[14]),
                                XPR(u[15] - u_prev[15]), XPR(u[16] - u_prev[16]), XPR(u[17] - u_prev[17]),
-                               XPR(u[18] - u_prev[18]), XPR(u[19] - u_prev[19]) );
+                               XPR(u[18] - u_prev[18]), XPR(u[19] - u_prev[19]),
+                               (long long)u[18], (long long)u[19] );
             wine_log_write( "%s", line );
 
             /* ml1321: file I/O + IO completion-port counters, one line of their own */
@@ -2584,14 +2585,52 @@ unsigned int server_wait( const union select_op *select_op, data_size_t size, UI
         abs_timeout -= now.QuadPart;
     }
 
-    {
+    {   /* WINE_IOS: compiled copy of dlls/ntdll/unix/server.c (build.sh
+         * substitutes this file for it). 2.1.8 = apply the ml1322 slice
+         * cap that 2.1.7 parked in the submodule copy, which this build
+         * never compiles (build.sh server case -> server_ios.c). Run #33
+         * (this 2.1.7 IPA) showed the heal never firing: components all
+         * present [evt-life]/reporter, zero park-forever re-issues.
+         */
         int is_game = ios_srv_game_teb &&
                       (uintptr_t)NtCurrentTeb() == ios_srv_game_teb;
         struct timespec t0, t1;
         if (is_game) clock_gettime( CLOCK_MONOTONIC, &t0 );
         ios_wait_enter( select_op, size, flags, abs_timeout,
                         __builtin_return_address(0) );
-        ret = server_select( select_op, size, flags, abs_timeout, NULL, &apc );
+#ifdef WINE_IOS
+        /* ml1322: lost-wake slice cap. iOS runs #30-#33 (IPA 2.1.5-2.1.7,
+         * Studio 0.743) wedged place-load with a pool of wineserver-parked
+         * threads whose events were recorded SET yet whose waiter stayed
+         * linked with signaled=0 ([evt-life]/[srv-stuck]) — an intermittent
+         * wake/reply loss on the in-process wineserver <-> FEX client
+         * boundary. Cap infinite waits to a 250 ms slice: every re-issued
+         * select re-evaluates object state on the server, so a swallowed
+         * set is honored within 250 ms even if its wake never arrived.
+         * Slice STATUS_TIMEOUT never escapes to the caller. */
+        if (abs_timeout == TIMEOUT_INFINITE)
+        {
+            timeout_t slice = -2500000;                  /* 250 ms, relative */
+            data_size_t slice_size = size;
+            int slice_waits = 0;
+
+            extern volatile long long ios_xp_wait_slices, ios_xp_slice_wakes;
+            for (;;)
+            {
+                __sync_fetch_and_add( &ios_xp_wait_slices, 1 );
+                ret = server_select( select_op, slice_size, flags, slice, NULL, &apc );
+                if (ret != STATUS_TIMEOUT) break;
+                /* keep "signal exactly once" for SELECT_SIGNAL_AND_WAIT: after
+                 * the first slice the subtracted-only wait is re-issued */
+                if (!slice_waits++ && size >= sizeof(select_op->signal_and_wait) &&
+                    select_op->op == SELECT_SIGNAL_AND_WAIT)
+                    slice_size = offsetof( union select_op, signal_and_wait.signal );
+                __sync_fetch_and_add( &ios_xp_slice_wakes, 1 );  /* saw nothing */
+            }
+        }
+        else
+#endif
+            ret = server_select( select_op, size, flags, abs_timeout, NULL, &apc );
         ios_wait_leave();
         if (is_game)
         {
