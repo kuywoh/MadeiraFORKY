@@ -1279,8 +1279,15 @@ static void ios_xp_api_report( const char *wall, double wall_s )
     extern volatile long long ios_xp_wait_single, ios_xp_wait_multi, ios_xp_wait_zero, ios_xp_wait_zero_timeout;
     extern volatile long long ios_xp_yield, ios_xp_yield_slept, ios_xp_delay, ios_xp_delay_hist[6];
     extern volatile long long ios_alert_wakes, ios_alert_waits;
+    /* ml1321: file I/O + IO completion-port counters ([xp-fio]) */
+    extern volatile long long ios_xp_read_calls, ios_xp_read_bytes, ios_xp_write_calls, ios_xp_write_bytes;
+    extern volatile long long ios_xp_setio, ios_xp_setio_ex, ios_xp_mrio, ios_xp_mrio_ex, ios_xp_mrio_pend, ios_xp_mrio_to;
+    extern volatile int ios_xp_rdthr_tid[48];
+    extern volatile long long ios_xp_rdthr_bytes[48];
     static uint64_t *fex, *fex_prev; static struct ios_xp_nt_view *nt, *nt_prev;
     static long long u_prev[18]; static int have_fex, have_nt, have_u, map_age = 1000, said_nf;
+    static long long fio_prev[10]; static int have_fio;
+    static long long rt_prev[48];
     static double last_s;
     static uint64_t sorted[4096];
     long long u[18]; double dt; char line[3000]; int n, i;
@@ -1360,6 +1367,45 @@ static void ios_xp_api_report( const char *wall, double wall_s )
                                XPR(u[10] - u_prev[10]), XPR(u[11] - u_prev[11]), XPR(u[12] - u_prev[12]), XPR(u[13] - u_prev[13]), XPR(u[14] - u_prev[14]),
                                XPR(u[15] - u_prev[15]), XPR(u[16] - u_prev[16]), XPR(u[17] - u_prev[17]) );
             wine_log_write( "%s", line );
+
+            /* ml1321: file I/O + IO completion-port counters, one line of their own */
+            {
+                long long fio[10];
+                int t, k;
+                long long nd[48];
+                fio[0] = ios_xp_read_calls; fio[1] = ios_xp_read_bytes;
+                fio[2] = ios_xp_write_calls; fio[3] = ios_xp_write_bytes;
+                fio[4] = ios_xp_setio; fio[5] = ios_xp_setio_ex;
+                fio[6] = ios_xp_mrio; fio[7] = ios_xp_mrio_ex;
+                fio[8] = ios_xp_mrio_pend; fio[9] = ios_xp_mrio_to;
+                n = snprintf( line, sizeof(line),
+                              "[xp-fio] %s rd %.0f/s %.2f MB/s wr %.0f/s %.2f MB/s | setio %.0f/s (Ex %.0f/s)"
+                              " rmio %.0f/s (Ex %.0f/s) pend %.0f/s to %.0f/s",
+                              wall,
+                              (double)(fio[0] - fio_prev[0]) / dt, (double)(fio[1] - fio_prev[1]) / dt / 1048576.0,
+                              (double)(fio[2] - fio_prev[2]) / dt, (double)(fio[3] - fio_prev[3]) / dt / 1048576.0,
+                              (double)(fio[4] - fio_prev[4]) / dt, (double)(fio[5] - fio_prev[5]) / dt,
+                              (double)(fio[6] - fio_prev[6]) / dt, (double)(fio[7] - fio_prev[7]) / dt,
+                              (double)(fio[8] - fio_prev[8]) / dt, (double)(fio[9] - fio_prev[9]) );
+                for (t = 0; t < 48; t++)
+                {
+                    nd[t] = ios_xp_rdthr_bytes[t] - rt_prev[t];
+                    rt_prev[t] = ios_xp_rdthr_bytes[t];
+                }
+                for (k = 0; k < 5; k++)
+                {
+                    int best = -1;
+                    for (t = 0; t < 48; t++)
+                        if (nd[t] > 0 && (best < 0 || nd[t] > nd[best])) best = t;
+                    if (best < 0) break;
+                    n += snprintf( line + n, sizeof(line) - n, " t%d=%.2f MB/s", ios_xp_rdthr_tid[best],
+                                   (double)nd[best] / 1048576.0 );
+                    nd[best] = -1;
+                }
+                memcpy( fio_prev, fio, sizeof(fio) );
+                if (have_fio) wine_log_write( "%s", line );
+                have_fio = 1;
+            }
 
             /* top x64->EC call targets from the ring entries appended since the last report */
             if (got_fex && have_fex && ecc > 0)
@@ -1553,7 +1599,16 @@ static void ios_xprobe_main( void )
                                 r->minst = (double)((cur[0].instr - pv->c[0].instr) + (cur[1].instr - pv->c[1].instr)) / 1e6;
                                 r->role = NULL;
                                 for (i = 0; i < ios_xp_nroles; i++) if (ios_xp_roles[i].tid == idi.thread_id) { r->role = ios_xp_roles[i].role; break; }
-                                if (r->role && teb && (strchr( r->role, 'P' ) || strchr( r->role, 'E' ))) ios_xp_game_teb = teb;   /* ml1131 */
+                                /* ml1321: the P/E-role route depended on dxmt's
+                                 * role registrations, and the madeira-d3d12
+                                 * gate (off by default) never grants them, so
+                                 * ios_xp_game_teb stayed 0 forever and the
+                                 * whole ios_xp_nt probe (CS contention,
+                                 * WaitOnAddress, QPC gaps) never bound. Take
+                                 * the first TEB we see; still prefer a
+                                 * Present/ECL caller's TEB when one turns up. */
+                                if (teb && (!ios_xp_game_teb || (r->role && (strchr( r->role, 'P' ) || strchr( r->role, 'E' )))))
+                                    ios_xp_game_teb = teb;
                                 sum_thr_ms += pt + et; nrows++;
                             }
                         }

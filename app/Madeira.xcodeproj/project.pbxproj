@@ -916,7 +916,7 @@ shellScript = "set -e\n[ \"$PLATFORM_NAME\" = iphoneos ] || exit 0\n# Madeira.ap
 					"$(SRCROOT)/../FEX/build-ios/External/SoftFloat-3e",
 					"$(SRCROOT)/Madeira",
 				);
-				MARKETING_VERSION = 2.1.5;
+				MARKETING_VERSION = 2.1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(MADEIRA_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -967,7 +967,7 @@ shellScript = "set -e\n[ \"$PLATFORM_NAME\" = iphoneos ] || exit 0\n# Madeira.ap
 					"$(SRCROOT)/../FEX/build-ios/External/SoftFloat-3e",
 					"$(SRCROOT)/Madeira",
 				);
-				MARKETING_VERSION = 2.1.5;
+				MARKETING_VERSION = 2.1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(MADEIRA_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -995,7 +995,7 @@ shellScript = "set -e\n[ \"$PLATFORM_NAME\" = iphoneos ] || exit 0\n# Madeira.ap
 					"$(inherited)",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.1.5;
+				MARKETING_VERSION = 2.1.6;
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"-framework",
@@ -1026,7 +1026,7 @@ shellScript = "set -e\n[ \"$PLATFORM_NAME\" = iphoneos ] || exit 0\n# Madeira.ap
 					"$(inherited)",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.1.5;
+				MARKETING_VERSION = 2.1.6;
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"-framework",
