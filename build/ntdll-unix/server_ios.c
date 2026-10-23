@@ -1278,6 +1278,8 @@ static void ios_xp_api_report( const char *wall, double wall_s )
     extern volatile long long ios_xp_set_event, ios_xp_reset_event, ios_xp_pulse_event;
     extern volatile long long ios_xp_wait_single, ios_xp_wait_multi, ios_xp_wait_zero, ios_xp_wait_zero_timeout;
     extern volatile long long ios_xp_yield, ios_xp_yield_slept, ios_xp_delay, ios_xp_delay_hist[6];
+    /* ml1322: server_wait() INF-slice loop counters (see wine ntdll server.c) */
+    extern volatile long long ios_xp_wait_slices, ios_xp_slice_wakes;
     extern volatile long long ios_alert_wakes, ios_alert_waits;
     /* ml1321: file I/O + IO completion-port counters ([xp-fio]) */
     extern volatile long long ios_xp_read_calls, ios_xp_read_bytes, ios_xp_write_calls, ios_xp_write_bytes;
@@ -1285,12 +1287,12 @@ static void ios_xp_api_report( const char *wall, double wall_s )
     extern volatile int ios_xp_rdthr_tid[48];
     extern volatile long long ios_xp_rdthr_bytes[48];
     static uint64_t *fex, *fex_prev; static struct ios_xp_nt_view *nt, *nt_prev;
-    static long long u_prev[18]; static int have_fex, have_nt, have_u, map_age = 1000, said_nf;
+    static long long u_prev[20]; static int have_fex, have_nt, have_u, map_age = 1000, said_nf;
     static long long fio_prev[10]; static int have_fio;
     static long long rt_prev[48];
     static double last_s;
     static uint64_t sorted[4096];
-    long long u[18]; double dt; char line[3000]; int n, i;
+    long long u[20]; double dt; char line[3000]; int n, i;
 
     if (!fex) { fex = calloc( IOS_XP_FEX_WORDS, 8 ); fex_prev = calloc( IOS_XP_FEX_WORDS, 8 ); nt = calloc( 1, sizeof(*nt) ); nt_prev = calloc( 1, sizeof(*nt) ); }
     if (!fex || !fex_prev || !nt || !nt_prev) return;
@@ -1333,6 +1335,7 @@ static void ios_xp_api_report( const char *wall, double wall_s )
     u[5] = ios_xp_wait_zero; u[6] = ios_xp_wait_zero_timeout; u[7] = ios_xp_yield; u[8] = ios_xp_yield_slept; u[9] = ios_xp_delay;
     for (i = 0; i < 6; i++) u[10 + i] = ios_xp_delay_hist[i];
     u[16] = ios_alert_waits; u[17] = ios_alert_wakes;
+    u[18] = ios_xp_wait_slices; u[19] = ios_xp_slice_wakes;   /* ml1322 */
     {
         int got_fex = ios_xp_fex_addr && ios_ts_read( ios_xp_fex_addr, fex, IOS_XP_FEX_WORDS * 8 ) && fex[0] == 0x5845465058444d41ull;
         int got_nt = ios_xp_nt_addr && ios_ts_read( ios_xp_nt_addr, nt, sizeof(*nt) ) && nt->magic == 0x31544e5058444d41ull;
@@ -1361,11 +1364,13 @@ static void ios_xp_api_report( const char *wall, double wall_s )
             if (have_u)
                 n += snprintf( line + n, sizeof(line) - n,
                                " | SetEvent %.0f/s ResetEvent %.0f/s Pulse %.0f/s | wait1 %.0f/s waitN %.0f/s polls %.0f/s (empty %.0f/s)"
-                               " | yield %.0f/s (slept %.0f/s) | delay %.0f/s [0 %.0f <1ms %.0f <5ms %.0f <20ms %.0f >=20ms %.0f inf %.0f] | alert wait %.0f/s wake %.0f/s",
+                               " | yield %.0f/s (slept %.0f/s) | delay %.0f/s [0 %.0f <1ms %.0f <5ms %.0f <20ms %.0f >=20ms %.0f inf %.0f]"
+                               " | alert wait %.0f/s wake %.0f/s | slices %.0f/s (empty %.0f/s)",
                                XPR(u[0] - u_prev[0]), XPR(u[1] - u_prev[1]), XPR(u[2] - u_prev[2]), XPR(u[3] - u_prev[3]), XPR(u[4] - u_prev[4]),
                                XPR(u[5] - u_prev[5]), XPR(u[6] - u_prev[6]), XPR(u[7] - u_prev[7]), XPR(u[8] - u_prev[8]), XPR(u[9] - u_prev[9]),
                                XPR(u[10] - u_prev[10]), XPR(u[11] - u_prev[11]), XPR(u[12] - u_prev[12]), XPR(u[13] - u_prev[13]), XPR(u[14] - u_prev[14]),
-                               XPR(u[15] - u_prev[15]), XPR(u[16] - u_prev[16]), XPR(u[17] - u_prev[17]) );
+                               XPR(u[15] - u_prev[15]), XPR(u[16] - u_prev[16]), XPR(u[17] - u_prev[17]),
+                               XPR(u[18] - u_prev[18]), XPR(u[19] - u_prev[19]) );
             wine_log_write( "%s", line );
 
             /* ml1321: file I/O + IO completion-port counters, one line of their own */
