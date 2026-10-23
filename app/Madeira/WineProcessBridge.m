@@ -1713,13 +1713,16 @@ static void *wine_process_thread(void *arg) {
                     LOG("game config env: %{public}s=%{public}s", k.UTF8String, v.UTF8String);
                     fprintf(stderr, "[madeira-env] game %s=%s\n", k.UTF8String, v.UTF8String);
                 }
-                /* Fastsync is the default sync engine: with neither inproc-sync nor
-                 * env.MADEIRA_FASTSYNC in madeira.cfg, Wine gets MADEIRA_FASTSYNC=auto,
-                 * the value Settings > Sync engine > Fastsync writes. Never overrides a
-                 * value already set (a game's own fastsync switch sets 0). */
-                if (madeira_cfg_sync_engine() == MADEIRA_SYNC_FASTSYNC && !getenv("MADEIRA_FASTSYNC")) {
-                    setenv("MADEIRA_FASTSYNC", "auto", 0);
-                    fprintf(stderr, "[madeira-env] sync engine: fastsync (default), MADEIRA_FASTSYNC=auto\n");
+                /* ml1320 (studio-wedge A/B): the instrumented place-open run
+                 * wedged with the default fastsync auto state (cells on, the
+                 * wake path never armed). Until the A/B clears, the engine of
+                 * last resort here is plain Wine sync: MADEIRA_FASTSYNC=0
+                 * makes both halves (ntdll sync.c, server event.c) take the
+                 * upstream paths. Never overrides a value already set (a game's
+                 * own fastsync switch keeps working). */
+                if (!getenv("MADEIRA_FASTSYNC")) {
+                    setenv("MADEIRA_FASTSYNC", "0", 0);
+                    fprintf(stderr, "[madeira-env] ml1320 sync engine: plain wine (studio-wedge A/B), MADEIRA_FASTSYNC=0\n");
                 }
             }
         }
