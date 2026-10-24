@@ -24,6 +24,7 @@ or a bug introduced while chasing it.
 | #33 | 2.1.7 (4) | `slices 0/s` on all 349 `[xp-api]` rows; CI green; `[srv-stuck]` still catching INF waits | **Healer never ran** — see Bug 1 |
 | #34 | 2.1.8 (4) | Ran 67 s, ~1000% CPU, `slices` ~400k/s, `cum` 16.7M, Studio never reached first frame | **New regression** — see Bug 2 |
 | #35 | 2.1.9 (4) | Slices normal (21/s, `cum` 3172 in 126 s) but Studio still stops at the splash; ~600–950% CPU from two spinning threads; 12 threads parked >60 s | **Bug 2 fixed, different blocker** — see Bug 4 |
+| #36 | 2.1.12 (4) | Boots, no boot crash, Qt loop up, Studio logs its last line at ~21 s, then a FEX allocation fails at ~45 s, one thread dies holding the FEX shared lock, two threads spin, splash forever | **Bug 4 root cause found** — see Bug 5 |
 
 #33 is second-hand (as reported); #34 and #35 were measured directly from the device logs.
 
@@ -290,6 +291,108 @@ for exactly the threads whose stack would name the stuck code, and the missing
 
 **Open.** Whether the leaked owner word is a dead thread's TEB (reapable) or a
 live thread stuck inside the lock — run #36's holder stack answers it.
+
+## Bug 5 — the 2GB FEX host arena is what wedges Studio (#36, 2.1.12)
+
+**Observed — the device has 17 GB of address space, and that is permanent.**
+
+```
+[device] address-map=[0x1026bc000,0x458000000) 17GB increased-memory=0 extended-va=0
+[va-profile] ml749 post-limit TASK_VM_INFO.max_address=0x458000000 (17.4 GB)
+```
+
+`increased-memory-limit` is the *resident* (jetsam) cap and was never hit — the run peaked
+at 2,664 MB with 5,098 MB available and was not killed. The binding limit is
+`extended-virtual-addressing`, which the sideload profile does not carry (and cannot: it
+is not granted to free/paid personal teams). So the whole emulator + guest must fit in
+17.4 GB, and `host_addr_space_limit=0x800000000` (32 GB) is a *fiction* the layout is
+still written against.
+
+**Observed — every fixed arena candidate is above the real ceiling.**
+
+```
+[fex-arena] ml799 hardware high band 16GB: native reserve FAILED kr=3
+[fex-arena] ml799 constrained 8GB: native reserve FAILED kr=3
+[fex-arena] ml799 8GB @16-32G / @8-16G, 4GB @32-48G / @48-63G / @16-32G / @8-16G: FAILED kr=3
+[fex-arena] ml901 2GB anywhere low: no FIXED home outside CoreAnimation's range … keeping the ANYWHERE placement at 0x370000000
+[fex-arena] ml774 WARNING: only 0x80000000 bytes. Sufficient for small guests; heavy titles are expected to exhaust it.
+```
+
+kr=3 is `KERN_NO_SPACE`. Eight of the nine `plan[]` windows live at or above 16 GB, i.e.
+entirely outside a 17.4 GB task, so they can never succeed here — and the 2 GB fallback is
+not a choice, it is the largest *fitting* hole the kernel could find (the tail above it is
+libmalloc's brk; the JIT pool later took the hole below it).
+
+**Observed — what the 2 GB is spent on.** Counted from the same log's `[vname]` lines
+(a name appears once per claim, and these are all per guest thread unless noted):
+
+| region | count | total |
+|---|---|---|
+| `FEXMem_CallRetStacks` (16 MB + 2 pages) | 27 | 432 MB |
+| `FEXMem_OpDispatcher` (16 MB, dual IR list) | 18 | 288 MB |
+| `FEXMem_Frontend` (8 MB) | 18 | 144 MB |
+| `FEXMem_Lookup_L1` (2 MB) | 38 | 76 MB |
+| `FEXMem_BlockLinks` / `CPUBackend` / `ThreadState` | 110 | 24 MB |
+| unnamed (FEX's own heap inside the band) | — | ~1 GB |
+
+So ≈42 MB of arena per guest thread, most of it *reservation* the thread never touches.
+
+**Observed — how that ends the run, in order (t = seconds after launch).**
+
+```
+t+45  [va-scan] FAILED window=0x370000000..0x3f0000000 size=0x1002000 … maxgap=0x1000000   (×11)
+t+45  [callret] RESERVE FAILED … thread cannot start                                        (×11)
+t+45  [alloc-fail] ml798 FEXAlloc could not allocate bytes=0x2990 …                        (traps)
+t+45  [deliver-hold] teb=0x457f20000 tid=006c HOLDS FEX shared lock @0x3710f108 at guest redirect — this delivery leaks the read hold
+t+45  err:seh:NtRaiseException Unhandled exception code c000001d → NtTerminateProcess
+t+46  [lock-reap] dead port=0x9143 tid=006c … released 1 shared (word 00020001 -> 00020000)
+t+46  SEGV pc=0x32f05a338 (pool, x1=0) and BUS pc=0x4519515d0 (exec in a prot=1/3 page) → [fault-stuck] abort_thread
+```
+
+**Inferred (fits every number above).** The splash waits on work that a worker thread
+owns. Studio tolerates the eleven threads that never started — it kept initialising for
+another second — but a FEX *internal* allocation cannot return NULL (FEXCore is
+`-fno-exceptions`), so ml798 traps. That thread was inside a JIT region holding the FEX
+`WritePriorityMutex` **shared**, so its death leaks the read hold; every later compile
+blocks on it. #35 saw exactly this from the outside (owner word never clearing, two
+threads at 100 %, the UI thread in neither the server queue nor the alarm pool); #36 names
+the owner and the reason it died. The `[lock-reap]` 1.5 s later releases the hold, and the
+blocked writers then invalidate/execute blocks that were already torn down — the SEGV/BUS
+pair and the 50-fault `[fault-stuck]` loop are the aftermath, not the cause.
+
+**Fix shipped for #37 (ml1250): cut per-thread arena demand, do not move the arena.**
+
+The arena cannot grow (2 GB is the largest fitting hole) and placement is load-bearing for
+the JIT pool, so the arena *reservation* per guest thread is what changes:
+
+- `CALLRET_STACK_SIZE` 16 MB → **8 MB**. The guard window is absolute — BranchOps pins sp
+to `[base+2MB, base+6MB)` and resets to `base+4MB` — so nothing above `base+6MB` was ever
+written: the top 10 MB of every stack was pure address space. The geometry is unchanged
+byte for byte; `CALLRET_DEFAULT_OFFSET`/`_LIVE_OFFSET`/`_LIVE_SIZE` are now explicit
+constants instead of `SIZE/4`-derived (at 8 MB, `SIZE/4` would have been 2 MB — the window
+floor, not its centre), and Dispatcher's whole-allocation guard moved `>>24` → `>>23` so a
+drift past the *new* allocation still resets instead of writing the callback sentinel into
+the arena. **Verified** by `tests/host/check-callret-geometry.py`.
+- `DefaultDecodedBufferSize` 0x10000 → **0x4000** instructions: the `FEXMem_Frontend` claim
+is `sizeof(DecodedInst) * N`, so 8 MB → 2 MB. Exceeding it is not a failure path — the
+decode loop stops at the bound (`MaxInst` already does the same) — but the loop only
+checked it at a block *terminator*, so a long straight-line run could write past
+`DecodedBuffer[]`. ml1250 adds the per-instruction bound that makes the smaller buffer
+safe (and closes the same hole at the old size).
+- Measured effect: ≈14 MB less reservation per guest thread (42 → 28 MB), i.e. 378 MB of a
+  2 GB arena for the 27 threads #36 had, plus every later thread.
+
+**Not shipped, on purpose.** `FEXMem_OpDispatcher` (16 MB, the dual IR list) was in the
+same plan and is *not* shrunk: `DataAllocate`/`ListAllocate`'s overflow check is
+`LOGMAN_THROW_A_FMT`, which compiles to `(void)(pred)` without `ASSERTIONS_ENABLED`, so a
+block whose IR exceeded a smaller list would write past the claim instead of failing. That
+needs a real overflow path (flush the block) before the size can come down.
+
+**Open.** Whether ≈380 MB is enough headroom for Studio's remaining threads is what #37
+measures. If it is not, the next lever is the IR list (see above) and 2.1.11's
+section-owner stamp, which writes TEB `0x1710`/`0x1720` — real fields (`ActivityId`,
+`SubProcessTag`, `PerflibData`), not the free slots the patch assumed; it must move to a
+side table.
 
 ## Files changed for 2.1.9 (pushed as `784f91d`)
 
