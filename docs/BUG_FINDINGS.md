@@ -382,17 +382,35 @@ safe (and closes the same hole at the old size).
 - Measured effect: ≈14 MB less reservation per guest thread (42 → 28 MB), i.e. 378 MB of a
   2 GB arena for the 27 threads #36 had, plus every later thread.
 
-**Not shipped, on purpose.** `FEXMem_OpDispatcher` (16 MB, the dual IR list) was in the
-same plan and is *not* shrunk: `DataAllocate`/`ListAllocate`'s overflow check is
-`LOGMAN_THROW_A_FMT`, which compiles to `(void)(pred)` without `ASSERTIONS_ENABLED`, so a
-block whose IR exceeded a smaller list would write past the claim instead of failing. That
-needs a real overflow path (flush the block) before the size can come down.
+**Also shipped for #37 (ml1252): the IR list now has a real overflow path, and is 8 MB →
+4 MB per buffer.** `FEXMem_OpDispatcher` is the dual IR list every block compile is emitted
+into; it was left out of ml1250 because `DataAllocate`/`ListAllocate`'s only bound was
+`LOGMAN_THROW_A_FMT`, which compiles to `(void)(pred)` without `ASSERTIONS_ENABLED` — a
+block whose IR outgrew a smaller list would have written into the next FEX allocation, with
+no diagnostic. That is fixed at the allocation itself:
 
-**Open.** Whether ≈380 MB is enough headroom for Studio's remaining threads is what #37
-measures. If it is not, the next lever is the IR list (see above) and 2.1.11's
-section-owner stamp, which writes TEB `0x1710`/`0x1720` — real fields (`ActivityId`,
-`SubProcessTag`, `PerflibData`), not the free slots the patch assumed; it must move to a
-side table.
+- the last 4 KB of each list are never handed out linearly; they are the landing pad for an
+  allocation that does not fit, so an overrun stays *inside* the claim. Its offset is a
+  valid in-arena offset, so a `NodeWrapper` pointing at it still round-trips (a separate
+  scratch object would not: offsets are 32-bit `ptr - base` truncations);
+- an overrun latches `Overran`. `GenerateIR` checks it after each instruction dispatch,
+  after `Finalize()` and after the pass manager — the IR built after an overrun is never
+  compiled. The attempt is discarded and re-decoded with half the instruction budget;
+- `GenerateIR` stops a block 128 KB before the claim is used up and **flushes it there** —
+  `ExitFunction` at the guest address of the instruction that did not fit, same shape as the
+  `NeedsBlockEnd` path — so a block that no longer fits becomes two blocks instead of a
+  failed compile. This only applies to the *last* block of a multiblock; earlier blocks may
+  already jump to labels for later ones, so those still re-decode smaller;
+- claim 4 MB → **2 MB per list** (8 MB → 4 MB per `FEXMem_OpDispatcher` buffer).
+  **Verified** structurally by `tests/host/check-ir-overflow.py`; the first real compile is
+  CI's `fex-ios-build`, and the run's `[ir-size]` / `[ir-flush]` / `[ir-overrun]` lines are
+  what say whether 2 MB is the right number or whether the next cut is available.
+
+**Open.** Whether ≈380 MB plus 4 MB per IR buffer is enough headroom for Studio's remaining
+threads is what #37 measures. If it is not, the next levers are that IR claim (now
+shrinkable on the `[ir-size]` measurement) and 2.1.11's section-owner stamp, which writes
+TEB `0x1710`/`0x1720` — real fields (`ActivityId`, `SubProcessTag`, `PerflibData`), not the
+free slots the patch assumed; it must move to a side table.
 
 ## Files changed for 2.1.9 (pushed as `784f91d`)
 

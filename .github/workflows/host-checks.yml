@@ -57,6 +57,7 @@ jobs:
             check-d3d12-tiled.py
             check-studio-apiset-coverage.py
             check-callret-geometry.py
+            check-ir-overflow.py
           )
 
           for test in "${tests[@]}"; do
