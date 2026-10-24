@@ -73,6 +73,7 @@
 #include <pthread/pthread.h>
 #include <pthread/qos.h>
 #include <fcntl.h>
+#include <time.h>
 #endif
 #ifdef HAVE_SYS_PARAM_H
 # include <sys/param.h>
@@ -777,6 +778,52 @@ static void ios_lock_census(void)
              * holding ONLY that must not be skipped by the !held early-out */
             mach_vm_read_overwrite( mach_task_self(), (mach_vm_address_t)(cteb + 0x16e8), 8,
                                     (mach_vm_address_t)&srw_held, &mgot );
+            /* ml1240: section-mutex owner. server_ios.c stamps TEB+0x1710/0x1718
+             * the moment an uninterrupted section's mutex_lock() succeeds (and
+             * TEB+0x1720/0x1728 for a nested section), clearing them before
+             * unlock — so nonzero = this thread OWNS the section mutex now.
+             * That names the holder the FEX stamps never cover: the section
+             * owner the parked wine syscalls are stuck against (#35's chain:
+             * NtAllocateVirtualMemory -> allocate_virtual_memory ->
+             * server_enter_uninterrupted_section -> virtual_mutex). */
+            {
+                uint64_t sec0 = 0, sec1 = 0;
+                uint32_t sm0 = 0, sm1 = 0;
+                if (mach_vm_read_overwrite( mach_task_self(), (mach_vm_address_t)(cteb + 0x1710), 8,
+                                            (mach_vm_address_t)&sec0, &mgot ) == KERN_SUCCESS
+                    && mgot == 8 && sec0)
+                {
+                    struct timespec ts;
+                    uint32_t now_ms;
+                    unsigned int stid = 0;
+                    mach_vm_read_overwrite( mach_task_self(), (mach_vm_address_t)(cteb + 0x1718), 4,
+                                            (mach_vm_address_t)&sm0, &mgot );
+                    mach_vm_read_overwrite( mach_task_self(), (mach_vm_address_t)(cteb + 0x48), 4,
+                                            (mach_vm_address_t)&stid, &mgot );
+                    clock_gettime( CLOCK_MONOTONIC, &ts );
+                    now_ms = (uint32_t)ts.tv_sec * 1000u + (uint32_t)(ts.tv_nsec / 1000000u);
+                    dprintf( 2, "[census-hold] SECTION-OWNER teb=0x%llx tid=%04x mutex=0x%llx age=%us rev=ml1240\n",
+                             (unsigned long long)cteb, stid, (unsigned long long)sec0,
+                             (unsigned long)((uint32_t)(now_ms - sm0) / 1000u) );
+                }
+                if (mach_vm_read_overwrite( mach_task_self(), (mach_vm_address_t)(cteb + 0x1720), 8,
+                                            (mach_vm_address_t)&sec1, &mgot ) == KERN_SUCCESS
+                    && mgot == 8 && sec1)
+                {
+                    struct timespec ts;
+                    uint32_t now_ms;
+                    unsigned int stid = 0;
+                    mach_vm_read_overwrite( mach_task_self(), (mach_vm_address_t)(cteb + 0x1728), 4,
+                                            (mach_vm_address_t)&sm1, &mgot );
+                    mach_vm_read_overwrite( mach_task_self(), (mach_vm_address_t)(cteb + 0x48), 4,
+                                            (mach_vm_address_t)&stid, &mgot );
+                    clock_gettime( CLOCK_MONOTONIC, &ts );
+                    now_ms = (uint32_t)ts.tv_sec * 1000u + (uint32_t)(ts.tv_nsec / 1000000u);
+                    dprintf( 2, "[census-hold] SECTION-OWNER-NESTED teb=0x%llx tid=%04x mutex=0x%llx age=%us rev=ml1240\n",
+                             (unsigned long long)cteb, stid, (unsigned long long)sec1,
+                             (unsigned long)((uint32_t)(now_ms - sm1) / 1000u) );
+                }
+            }
             if (!held && !srw_held)
             {
                 /* ml416: a converged rpmalloc-ownership repair leaves its

@@ -460,6 +460,49 @@ static inline void ios_section_set_state( uintptr_t state )
     if (ios_section_key_ready) pthread_setspecific( ios_section_key, (void *)state );
 }
 
+/* ml1240: name the owner of a section mutex from outside the thread.
+ * mutex_lock() can block peers forever (-- the run-#35 shape: wine syscalls
+ * parked in server_enter_uninterrupted_section on virtual_mutex while its
+ * owner never leaves), and the FEX stamps in the Instrumentation array
+ * (slots 3-10, ending at slot 10 = 0x1708) cover only FEX-side locks. Stamp
+ * THIS thread's TEB with the mutex address and a CLOCK_MONOTONIC ms32 the
+ * moment mutex_lock() succeeds, and clear both before unlock: 0x1710/0x1718
+ * for the outermost in-section frame, 0x1720/0x1728 for the nested one.
+ * Indexing is driven by ios_section_state()'s existing DEPTH counter so a
+ * nested enter/leave pair never tramples the outer stamp. 0x1710 and up sit
+ * past the Instrumentation array and are unused. The census in
+ * signal_arm64_ios.c reads these per registry thread, so a stall names the
+ * holder, its mutex and the hold age with no guest-side cooperation. */
+static uint32_t ios_owner_ms( void )
+{
+    struct timespec ts;
+    clock_gettime( CLOCK_MONOTONIC, &ts );
+    return (uint32_t)ts.tv_sec * 1000u + (uint32_t)(ts.tv_nsec / 1000000u);
+}
+
+static void ios_section_owner_stamp( pthread_mutex_t *mutex )
+{
+    char *teb = (char *)NtCurrentTeb();
+    unsigned idx = (unsigned)( ios_section_state() & IOS_SECTION_DEPTH );
+    if (!idx || idx > 2) return;           /* track at most the 2 outer levels */
+    idx--;
+    *(volatile void **)( teb + 0x1710 + (uintptr_t)idx * 0x10 ) = (void *)mutex;
+    *(volatile uint32_t *)( teb + 0x1718 + (uintptr_t)idx * 0x10 ) = ios_owner_ms();
+}
+
+static void ios_section_owner_clear( pthread_mutex_t *mutex )
+{
+    char *teb = (char *)NtCurrentTeb();
+    unsigned idx = (unsigned)( ios_section_state() & IOS_SECTION_DEPTH );
+    if (!idx || idx > 2) return;
+    idx--;
+    if (*(volatile void **)( teb + 0x1710 + (uintptr_t)idx * 0x10 ) == (void *)mutex)
+    {
+        *(volatile void **)( teb + 0x1710 + (uintptr_t)idx * 0x10 ) = 0;
+        *(volatile uint32_t *)( teb + 0x1718 + (uintptr_t)idx * 0x10 ) = 0;
+    }
+}
+
 /* A dead pipe on the current thread. TRUE: fail the request, the thread exits when
  * it leaves its sections. FALSE: exit now (not in a section, or switched off). */
 static BOOL ios_defer_section_abort(void)
@@ -1992,6 +2035,8 @@ void server_enter_uninterrupted_section( pthread_mutex_t *mutex, sigset_t *sigse
     mutex_lock( mutex );
 #ifdef WINE_IOS
     ios_section_set_state( ios_section_state() + 1 );
+    /* ml1240: after the lock - only the thread that OWNS the mutex stamps */
+    ios_section_owner_stamp( mutex );
 #endif
 }
 
@@ -2004,6 +2049,9 @@ void server_leave_uninterrupted_section( pthread_mutex_t *mutex, sigset_t *sigse
 #ifdef WINE_IOS
     uintptr_t state = ios_section_state() - 1;
 
+    /* ml1240: drop our owner stamp before the unlock so a thread that takes
+     * the mutex next is never raced by two identical stamps in the census */
+    ios_section_owner_clear( mutex );
     ios_section_set_state( state );
 #endif
     mutex_unlock( mutex );
