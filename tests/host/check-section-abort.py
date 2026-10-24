@@ -83,6 +83,10 @@ require('wait_select_reply' not in helpers and src.count('if (!reply.cookie) abo
 log_line = helpers[helpers.index('dprintf( 2, "[section-abort]'):helpers.index(');', helpers.index('dprintf( 2, "[section-abort]'))]
 require('%s' not in log_line, 'the log line prints numbers only')
 require('_Thread_local' not in helpers.split('*/', 1)[1], 'no thread-local variable (first touch allocates on Darwin)')
+require(helpers.count('if (!teb) return;') == 2
+        and helpers.index('if (!teb) return;') < helpers.index('teb + 0x1710'),
+        'ml1241: both section-owner stamps refuse a thread with no TEB '
+        '(virtual_alloc_teb enters the section before the child has one)')
 
 x18 = '__asm__ volatile("mov %0, x18" : "=r"(x18_val));'
 require(read_reply.count(x18) == 1, 'the x18 diagnostic read is the only host-specific line replaced')
@@ -128,7 +132,11 @@ struct __server_request_info
 struct thread_data { int request_fd, reply_fd; };
 static __thread struct thread_data tdata;
 static struct thread_data *ntdll_get_thread_data(void) { return &tdata; }
-static void *NtCurrentTeb(void) { return &tdata; }
+/* ml1241: the section-owner stamp writes TEB+0x1710..TEB+0x1728, so the TEB
+   stand-in must be a TEB-sized block. NtCurrentTeb() used to return &tdata
+   (8 bytes) and every section entry wrote 0x1710 past it (ASan: overflow). */
+static __thread unsigned char fake_teb[0x1800];
+static void *NtCurrentTeb(void) { return fake_teb; }
 static int fd_socket = -1;
 static unsigned int GetCurrentThreadId(void) { return 0x42; }
 static sigset_t server_block_set;

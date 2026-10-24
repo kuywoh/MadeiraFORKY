@@ -484,6 +484,15 @@ static void ios_section_owner_stamp( pthread_mutex_t *mutex )
 {
     char *teb = (char *)NtCurrentTeb();
     unsigned idx = (unsigned)( ios_section_state() & IOS_SECTION_DEPTH );
+    /* ml1241: a thread without a TEB must not be stamped. virtual_alloc_teb()
+     * enters this section to hand the child thread its FIRST TEB, so at that
+     * moment NtCurrentTeb() is still NULL and the store below faults at 0x1710:
+     * v2.1.11 killed every spawned child there (Play -> cmd /c <game>.bat) with
+     * a SIGSEGV on a NON-guest thread, which the Mach handler declines and the
+     * kernel turns into process death. Native threads have no TEB at all
+     * (ml558, ml483), so there is nothing to stamp and the census could never
+     * read it either. */
+    if (!teb) return;
     if (!idx || idx > 2) return;           /* track at most the 2 outer levels */
     idx--;
     *(volatile void **)( teb + 0x1710 + (uintptr_t)idx * 0x10 ) = (void *)mutex;
@@ -494,6 +503,7 @@ static void ios_section_owner_clear( pthread_mutex_t *mutex )
 {
     char *teb = (char *)NtCurrentTeb();
     unsigned idx = (unsigned)( ios_section_state() & IOS_SECTION_DEPTH );
+    if (!teb) return;                      /* ml1241: same NULL TEB as the stamp */
     if (!idx || idx > 2) return;
     idx--;
     if (*(volatile void **)( teb + 0x1710 + (uintptr_t)idx * 0x10 ) == (void *)mutex)
