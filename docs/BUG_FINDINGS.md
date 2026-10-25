@@ -532,6 +532,46 @@ next step is instrumenting `arm64x_check_call` to print `x11` + the bit it read,
 the Studio update itself. `[build] v2.1.13 (4)` is the first build logging Studio's own
 `WebView2Loader\ucrtbase.dll`.
 
+### Second attempt (session `10-29-13`): `WINEDLLOVERRIDES` is ignored here
+
+Same build, same prefix, plus `env.WINEDLLOVERRIDES = ucrtbase=b` (confirmed exported:
+`[madeira-env] game WINEDLLOVERRIDES=ucrtbase=b`). The module did not change:
+
+```
+20249  Loaded L"C:\\WebView2Loader\\ucrtbase.dll" at 0000000FB8810000: native
+19642  [data-align] ucrtbase.dll shifted +0x1000 so .data lands on a 16KB page
+19644  [jit-pool] image 0xfb8810000+0x14b000 (ucrtbase.dll) → pool 0x31615d000 … tramp+0x0
+19664  iOS JIT: skipping x18 patcher for non-ARM64 PE (Machine=0x8664)
+20591  [exc-disp] raise tid=006c code=c000001d addr=0xfb8873c10 pc=3161c0c10
+```
+
+Same `pc`, same `addr`, same `x8/x9/x10/x11` as the first attempt — the fault is
+**deterministic**, not a race, which is why an A/B is worth running at all.
+
+**Verified — the override cannot work in this tree.** `find_dll_file`
+(`wine/dlls/ntdll/loader.c:3929`) searches the application directory first and only
+re-points the search at `system_dir` for the names in `madeira_force_builtin_dll`, which is
+XInput-only; the comment above it states the reason this matters: "the iOS unix loader
+never replaces a native image with the builtin (`load_builtin` in Madeira's `loader_ios.c`
+returns `STATUS_IMAGE_ALREADY_LOADED`)". So `=b` is read by Wine's load-order code and then
+discarded — the file already found wins.
+
+**What the image actually is.** Sections: `.text`, **`fothk`**, `.rdata`, `.data`, `.pdata`,
+**`.fptable`**, `.rsrc`, `.reloc`; `Machine=0x8664`; no `.hexpthk`. All three of this tree's
+hybrid accommodations key on `.hexpthk` — the EC marking (`virtual_ios.c:13293`), the x18
+patcher (`:13640`) and the EC import redirect (`loader.c:1440`) — so this module is treated
+as pure x86_64 by every one of them, and its exports are bound as raw x64 addresses inside
+an ARM64EC process. That is the configuration that dies at `+3.3 s`, and it is the only
+module in the process in it.
+
+**Next test — make the app-local copy unavailable (no rebuild, no code).** Rename
+`C:\WebView2Loader\ucrtbase.dll` to `ucrtbase.dll.bak` and relaunch. The search then falls
+through to `C:\windows\system32\ucrtbase.dll`, which every other process in both logs loads
+as `builtin` (and which got `tramp+0x4000` instead of `tramp+0x0`). Expected either
+`Loaded L"C:\\windows\\system32\\ucrtbase.dll" … : builtin` for pid 0068 and no
+`c000001d`, or a clean missing-import failure — both are answers; the same `c000001d` at
+`ucrtbase+0x63c10` would mean the trigger is not this module at all.
+
 **Also worth noting for the next export:** `[ir-size]` / `[ir-flush]` / `[ir-overrun]`
 never appear, so ml1252's 2 MB claim was never exercised in this run — the crash happens
 far too early. A `[fault_rip] rip=0x0` is the instrument gap to close if this recurs.
