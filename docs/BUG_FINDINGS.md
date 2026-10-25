@@ -632,6 +632,13 @@ base=0xb30000000`, against #36's 17 GB and 2 GB — the pressure that exhausted 
 that is the price of this revert and the answer is to re-pin `2ee1437` + re-apply
 `7d1aa0b`/`529230a`, not to go back to the full `050e446`.
 
+**The submodule source is back to `willfaust/FEX` too.** `144395b` also repointed
+`.gitmodules` at `kuywoh/FEX`; that is reverted, so a clean clone of 2.1.14 fetches the same
+FEX repository 2.1.12 built from. (`kuywoh/FEX` does contain `3bec2ac` — it is an ancestor of
+its `ios-port-2607` tip — so the pin would have resolved either way; this only removes the
+last difference from the 2.1.12 build.) All four `patches/fex/*.patch` apply cleanly at
+`3bec2ac`, which is what `fex-ios-build.yml` applies them to.
+
 **The two FEX-source checks are now pin-aware.**
 `check-callret-geometry.py` and `check-ir-overflow.py` assert source that only exists in a FEX
 carrying ml1250/ml1252, so on the reverted pin they would have turned CI red for the wrong
