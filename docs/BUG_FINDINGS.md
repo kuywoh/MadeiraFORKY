@@ -482,23 +482,55 @@ finished, before any Studio code of its own ran.
 - `[fex-exports] ml614 … RECORDED BUT NOT ARMED` is deliberate (see `virtual_ios.c`), not
   a regression — ml613's arming is what crashed every launch back then.
 
-**Inferred — the shape of the defect.** Something took an indirect native branch with the
-x64 target in `x11` and no emulator entry. Candidate decision points, in the order worth
-checking:
+**Verified — the module guard is not the defect.** The image was classified correctly and
+said so:
 
-1. the hybrid/EC bitmap (`set_arm64ec_range`, `peb->EcCodeBitMap` at `0xfb96f0000`) — the
-   pool range that holds ucrtbase's executable copy is *not* in any of the four ranges the
-   run marks, and the run marks them by VA/RVA arithmetic;
-2. `[data-align] … shifted +0x1000` — every RVA-derived structure (exception directory,
-   hybrid dispatch RVA, EC ranges) is offset-sensitive, and this image was shifted;
-3. ml943's `[x64-iat] … KEEPING x64 target … (no native redirect)` — correct for a public
-   FF25 stub, but it was applied to kernelbase/kernel32 only, never to ucrtbase.
+```
+[data-align] ucrtbase.dll shifted +0x1000 so .data lands on a 16KB page
+iOS JIT: copied image 0xfb8810000+0x14b000 → pool 0x31615d000
+iOS JIT: NOT marking jit 0x31615d000+0x14b000 as EC (no .hexpthk section, pure x86_64)
+```
 
-**Open — the one fact that splits this.** Did *this* 2.1.13 build ever boot, or is #36
-(2.1.12) the last run that reached the editor? If 2.1.12 is the last good one, the only FEX
-delta is ml1250/ml1252, and an A/B is cheap. If 2.1.13 booted before, it is a
-flaky/address-dependent defect in the EC dispatch path and the config/launch path is the
-first thing to hold constant.
+`virtual_ios.c:13293` is explicit that a pure x86_64 image must *not* be marked EC, because
+`arm64x_check_call` would "dispatch BL directly into the JIT-pool copy of x86_64
+instructions (executed as ARM64 → garbage)" — the exact sentence that describes run #37, and
+it did not fire here. So the bitmap is right and the branch that ignored it is elsewhere.
+
+**Inferred — the branch is the ml246 trap in `arm64x_check_call`.** Wine's
+`__os_arm64x_check_call` (`wine/dlls/ntdll/signal_arm64ec.c:4793`) decides EC-vs-x64 *before*
+the branch, and its lookup goes through `ldr x16,[x18,#0x60]` — a PEB read via x18, which
+iOS clobbers (this dump has `x18=0x0`). ml246 kept that read deliberately: correcting it
+was A/B-proven to break CEF for 8 consecutive runs, and its own note says the bug that
+motivated keeping it is "a direct branch into x64 bytes executed as ARM64" whose false
+positive had not been found. Run #37 is that sentence, one layer down: a target that must go
+through the x64 exit thunk took the `.Ldone` (EC) path instead.
+
+**Why this trigger is new even though the trap is old.** The only two modules in the Studio
+process loaded as `native` are the ARM64EC exe and
+`C:\WebView2Loader\ucrtbase.dll` — Studio ships its **own pure-x64 CRT beside the exe**,
+where every other process in the same log loads `C:\windows\system32\ucrtbase.dll` as
+`builtin` (and got `tramp+0x4000`; this one got `tramp+0x0`). That app-local CRT is the
+first x64-callee-native-caller pair the dispatch path sees, 0.6 s after init. #36's Studio
+build did not have it, so "it booted on 2.1.8" and "it does not boot now" are both true and
+neither is a Madeira 2.1.9–2.1.13 regression.
+
+**Cheapest discriminator — no rebuild needed.** Make Studio use the CRT the rest of the
+prefix already uses, as one line in that entry's own config (Game details › This game's
+config), then relaunch:
+
+```
+env.WINEDLLOVERRIDES = ucrtbase=b
+```
+
+If Studio gets past +4 s with `Loaded L"C:\\windows\\system32\\ucrtbase.dll"` and no
+`c000001d`, the trigger is confirmed as the app-local CRT and the fix is dispatch-side. If
+it still dies at `ucrtbase+0x63c10`, the ml246 false positive is address-dependent and the
+next step is instrumenting `arm64x_check_call` to print `x11` + the bit it read, not a revert.
+
+**Open — reported by the user.** The last build that reached the editor was **2.1.8**, not
+#36 — so no revert inside 2.1.9–2.1.13 can be the fix, and the regression window includes
+the Studio update itself. `[build] v2.1.13 (4)` is the first build logging Studio's own
+`WebView2Loader\ucrtbase.dll`.
 
 **Also worth noting for the next export:** `[ir-size]` / `[ir-flush]` / `[ir-overrun]`
 never appear, so ml1252's 2 MB claim was never exercised in this run — the crash happens
