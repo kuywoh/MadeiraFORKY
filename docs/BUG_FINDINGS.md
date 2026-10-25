@@ -575,3 +575,59 @@ as `builtin` (and which got `tramp+0x4000` instead of `tramp+0x0`). Expected eit
 **Also worth noting for the next export:** `[ir-size]` / `[ir-flush]` / `[ir-overrun]`
 never appear, so ml1252's 2 MB claim was never exercised in this run — the crash happens
 far too early. A `[fault_rip] rip=0x0` is the instrument gap to close if this recurs.
+
+## Run #37 fix — 2.1.14 pins FEX back to the 2.1.12 emulator
+
+**Verified — nothing in the app changed between the booting build and the crashing one.**
+
+```
+$ git diff --stat e5c73bf..HEAD -- . ':!FEX' ':!wine' ':!dxmt'
+ .github/workflows/host-checks.yml     |   2 +
+ .gitmodules                           |   2 +-
+ app/Madeira.xcodeproj/project.pbxproj |   8 +-      <- MARKETING_VERSION only
+ docs/BUG_FINDINGS.md                  | 268 +++
+ tests/host/check-callret-geometry.py  | 164 +++
+ tests/host/check-ir-overflow.py       | 207 +++
+```
+
+No `build/ntdll-unix/*.c`, no `app/Madeira/*`, no shipped `.dll`. `2.1.12 (4)` is the
+build BUG_FINDINGS records as **"Boots, no boot crash, Qt loop up"** (#36); `2.1.13 (4)`
+dies at +3.3 s in both of run #37's logs.
+
+**Why a source-only FEX bump still changes the device build.** `app/Madeira/arm64ec-windows`
+is a folder reference, but `app-build-preflight.yml` downloads the job `fex-arm64ec-runtime`
+into it, and `build/fex-arm64ec/build.sh` compiles `xtajit64.dll` from the FEX submodule, so
+an .ipa built from a checkout carries the pinned source — not the DLL committed in git (still
+built from `3bec2ac`, the FEX of 2.1.5 through 2.1.12).
+
+So the whole behavioural delta between the last booting build and #37 is the FEX pin:
+
+| | FEX | Result |
+|---|---|---|
+| 2.1.12 (4) | `3bec2ac` | boots, no boot crash (#36) |
+| 2.1.13 (4) | `050e446` = `3bec2ac` + #15 #16 #17 #18 #19 #20 + ml1250/ml1252 | `c000001d` at +3.3 s (#37, twice) |
+
+And the fatal one is almost certainly **`011b4be` (#18), "leaner x64/ARM64EC transitions"**:
+it is the only commit in that range that rewrites the call/return path between emulated x64
+and native ARM64EC, and the two logs fault in exactly that transition — a target taken as EC
+and entered at its pool copy, where the bytes are x86, so the CPU raises
+`EXC_BAD_INSTRUCTION` on the first word (`.text` of Studio's own
+`C:\WebView2Loader\ucrtbase.dll`, ARM word `0x245c8948` = the x86 prologue). #18 also has
+the only switches that could separate its seven parts (`MADEIRA_FEX_EC_EXIT_LEAN`,
+`_EC_RET`, `_EC_RET_DIRECT`, `_EC_BITMAP_CACHE`, `_CALLRET_ELIDE`, `_SMC_FASTPATH`), which is
+what makes it bisectable later.
+
+**Fix (2.1.14): the FEX pin goes back to `3bec2ac`.** That is the emulator that booted
+Studio in #36, byte for byte, and it needs no other change. The newer FEX work is not
+deleted — `kuywoh/FEX` `ios-port-2607` still carries #15–#20 and ml1250/ml1252 — it is only
+held out of the build. Re-pin and bisect by commit if the newer one is wanted again:
+`2ee1437` (#19, call-ret only) first, then `011b4be` (#18), then the rest.
+
+**What #37 costs and what to watch.** ml1250/ml1252 were the arena cut (#36's
+`[callret] RESERVE FAILED` at t+45 s, the thing that stopped the splash becoming an editor),
+so dropping them re-exposes that. Counter-evidence that it may not fire: both #37 logs run
+with `[device] address-map=… 63GB` and `[fex-arena] ml799 RESERVED constrained 8GB
+base=0xb30000000`, against #36's 17 GB and 2 GB — the pressure that exhausted the arena in
+#36 is not obviously present. If a `[callret] RESERVE FAILED` row appears in the 2.1.14 run,
+that is the price of this revert and the answer is to re-pin `2ee1437` + re-apply
+`7d1aa0b`/`529230a`, not to go back to the full `050e446`.
