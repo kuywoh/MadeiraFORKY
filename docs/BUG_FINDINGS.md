@@ -25,6 +25,7 @@ or a bug introduced while chasing it.
 | #34 | 2.1.8 (4) | Ran 67 s, ~1000% CPU, `slices` ~400k/s, `cum` 16.7M, Studio never reached first frame | **New regression** — see Bug 2 |
 | #35 | 2.1.9 (4) | Slices normal (21/s, `cum` 3172 in 126 s) but Studio still stops at the splash; ~600–950% CPU from two spinning threads; 12 threads parked >60 s | **Bug 2 fixed, different blocker** — see Bug 4 |
 | #36 | 2.1.12 (4) | Boots, no boot crash, Qt loop up, Studio logs its last line at ~21 s, then a FEX allocation fails at ~45 s, one thread dies holding the FEX shared lock, two threads spin, splash forever | **Bug 4 root cause found** — see Bug 5 |
+| #37 | 2.1.13 (4) | Boot crash: Studio's main thread executes x64 bytes as ARM64 at +4 s, `c000001d` at `ucrtbase+0x63c10`; no arena-exhaustion rows at all | **New failure, not Bug 5** — see the #37 section |
 
 #33 is second-hand (as reported); #34 and #35 were measured directly from the device logs.
 
@@ -428,3 +429,77 @@ free slots the patch assumed; it must move to a side table.
   now also prints the slot-6 SRW stamp, and a holder with no alert wait prints
   `WAITING-ON none` instead of nothing.
 - `app/Madeira.xcodeproj/project.pbxproj` — `MARKETING_VERSION = 2.1.10`.
+
+## Run #37 — 2.1.13 does not boot: native execution of x64 bytes (+4 s)
+
+**Observed** (device log exported 2026-10-25, session
+`logs/RobloxStudioBeta.exe-2026-10-25_10-14-05.txt`). Follows Bug 5's planned run,
+and the first build with ml1250/ml1252 in it.
+
+```
+[build] v2.1.13 (4)
+[device] address-map=[0x102d34000,0xfc0000000) 63GB        <- debugger attached; #36 had 17GB
+[fex-arena] ml799 RESERVED constrained 8GB base=0xb30000000   <- not #36's 2GB @0x370000000
+[phase] spawn:RobloxStudioBeta.exe t+3.057s
+arm64ec_process_init_dispatchers: re-patching xtajit64.dll / kernelbase.dll / kernel32.dll metadata
+t+4.2s  pc=0x3161c0c10 (pool copy of ucrtbase+0x63c10)  host ran the x86 bytes
+        err:seh:NtRaiseException Unhandled exception code c000001d
+        NtTerminateProcess(exit_code=0xc000001d)  -> abort_process (ml937, this pseudo-process only)
+```
+
+The faulting word is the giveaway: the ARM instruction word at the host PC is
+`0x245c8948`, which is no A64 encoding — it is `48 89 5c 24`, i.e. `mov [rsp+8],rbx`,
+the first four bytes of the x86 function at `ucrtbase+0x63c10`. The host branch
+landed on a **function entry**, so the target was right and only the *kind* of code
+was wrong: the address was treated as ARM64EC-native and executed on the CPU
+instead of being translated.
+
+**Supporting rows from the same crash**
+
+| Row | Reads |
+|---|---|
+| `[mach_exc] pc pool-copy pe=0xfb8810000` / `pc PE: ucrtbase.dll+0x63c10` | the copy belongs to Studio's **own** `C:\WebView2Loader\ucrtbase.dll` (loaded `native` at `0xFB8810000`), not Wine's builtin |
+| `[ec-fault-regs] x0=0xfb8810000 x11=0xfb8873c10` | x0 = the module base, x11 = the x64 target — the register shape of the ARM64EC x64-call dispatch |
+| `[x86_live] State.RIP=0x0 RSP=0x0` `callret_sp=0x0` | no FEX x86 state: the branch never went through the emulator, so `[fault_rip] rip=0x0` |
+| `[unalign-byte] ml624 #1` / `[store-noalias] #1` / `[fault_rip] cnt=1` | first occurrence in the run — this is the very first thing Studio does of this kind |
+| `[data-align] ucrtbase.dll shifted +0x1000 so .data lands on a 16KB page` | the image Studio crashed in is one whose section layout is **not** the file's |
+
+**Verified — this is not Bug 5 repeating.** The log has zero `[callret] RESERVE FAILED`,
+zero `[alloc-fail] ml798`, zero `[deliver-hold]`, and the arena is 8 GB at
+`0xb30000000` rather than 2 GB. The `[va-scan] SLOW … iOS REFUSED A FREE ADDRESS`
+rows are the known non-signal. So neither ml1250's arena cut nor ml1252's IR claim is
+what failed here; the process died 0.6 s after `arm64ec_process_init_dispatchers`
+finished, before any Studio code of its own ran.
+
+**Verified — the config in this run cannot explain it either.**
+
+- `[jumbo-hold] ml996 want=40961 MB; largest free hole 31744 MB … NOT holding` —
+  `jumbo-mb = 40961` is unsatisfiable on this layout; it reserved nothing.
+- `env.WINEDEBUG` there only *adds* channels (`trace+dll` gave the `Loaded` rows quoted
+  above); it cannot change a branch decision.
+- `env.MIMALLOC_FORCE_REDIRECT` is read by **nothing** in this tree (no `mimalloc` match
+  anywhere in `app/`, `build/`, `wine/`, `FEX/`); it is Studio's own allocator switch.
+- `[fex-exports] ml614 … RECORDED BUT NOT ARMED` is deliberate (see `virtual_ios.c`), not
+  a regression — ml613's arming is what crashed every launch back then.
+
+**Inferred — the shape of the defect.** Something took an indirect native branch with the
+x64 target in `x11` and no emulator entry. Candidate decision points, in the order worth
+checking:
+
+1. the hybrid/EC bitmap (`set_arm64ec_range`, `peb->EcCodeBitMap` at `0xfb96f0000`) — the
+   pool range that holds ucrtbase's executable copy is *not* in any of the four ranges the
+   run marks, and the run marks them by VA/RVA arithmetic;
+2. `[data-align] … shifted +0x1000` — every RVA-derived structure (exception directory,
+   hybrid dispatch RVA, EC ranges) is offset-sensitive, and this image was shifted;
+3. ml943's `[x64-iat] … KEEPING x64 target … (no native redirect)` — correct for a public
+   FF25 stub, but it was applied to kernelbase/kernel32 only, never to ucrtbase.
+
+**Open — the one fact that splits this.** Did *this* 2.1.13 build ever boot, or is #36
+(2.1.12) the last run that reached the editor? If 2.1.12 is the last good one, the only FEX
+delta is ml1250/ml1252, and an A/B is cheap. If 2.1.13 booted before, it is a
+flaky/address-dependent defect in the EC dispatch path and the config/launch path is the
+first thing to hold constant.
+
+**Also worth noting for the next export:** `[ir-size]` / `[ir-flush]` / `[ir-overrun]`
+never appear, so ml1252's 2 MB claim was never exercised in this run — the crash happens
+far too early. A `[fault_rip] rip=0x0` is the instrument gap to close if this recurs.
