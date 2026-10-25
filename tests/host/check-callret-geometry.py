@@ -70,6 +70,21 @@ core_text = core.read_text(encoding='utf-8', errors='replace')
 lin_text = lin.read_text(encoding='utf-8', errors='replace')
 
 
+MB = 1024 * 1024
+
+# The pin decides which geometry is the correct one. 2.1.14 pinned FEX back to the 2.1.12
+# emulator, which predates ml1250 -- there CALLRET_STACK_SIZE is 16MB by design and the
+# offsets are SIZE/4-derived, so the assertions below describe a stack this tree does not
+# have. Skip loudly, before any assertion can print, rather than pass or fail: a pin that
+# DOES carry ml1250 is still checked in full, and the printed reason names the shape so a
+# silent pass is impossible.
+_pinned = re.search(r'CALLRET_STACK_SIZE\s*\{\s*(0x[0-9a-fA-F]+|\d+)\s*\}', state_text)
+if _pinned and int(_pinned.group(1), 0) > 8 * MB:
+    print(f'SKIP: FEX is pinned before ml1250 (CALLRET_STACK_SIZE is {int(_pinned.group(1), 0) >> 20}MB); '
+          'the 8MB geometry and its per-instruction decode bound apply only to a FEX that carries it')
+    sys.exit(0)
+
+
 def const(text, name, where):
     m = re.search(re.escape(name) + r'\s*\{\s*(0x[0-9a-fA-F]+|\d+)\s*\}', text)
     if not m:
@@ -83,7 +98,6 @@ default = const(state_text, 'CALLRET_DEFAULT_OFFSET', 'InternalThreadState.h')
 low = const(state_text, 'CALLRET_LIVE_OFFSET', 'InternalThreadState.h')
 win = const(state_text, 'CALLRET_LIVE_SIZE', 'InternalThreadState.h')
 
-MB = 1024 * 1024
 if size is not None:
     # 16MB per guest thread is what exhausted the arena (27 stacks = 432MB of 2048MB).
     check(size <= 8 * MB, f'CALLRET_STACK_SIZE is {size >> 20}MB (budget: at most 8MB per guest thread)')

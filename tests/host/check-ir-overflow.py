@@ -62,6 +62,15 @@ em_h_text = emitter_h.read_text(encoding='utf-8', errors='replace')
 em_cpp_text = emitter_cpp.read_text(encoding='utf-8', errors='replace')
 core_text = core.read_text(encoding='utf-8', errors='replace')
 
+# 2.1.14 pinned FEX back to the 2.1.12 emulator, which predates ml1251/ml1252: there the IR
+# list has no landing slot and no margin flush, so every assertion below would describe code
+# that is not in this tree. Skip loudly, keyed on the source itself, so a pin that DOES carry
+# the overflow path is still checked in full.
+if 'OVERRUN_SLOT_SIZE' not in list_text or 'IR_ONE_INSTRUCTION_MARGIN' not in em_h_text:
+    print('SKIP: FEX is pinned before ml1251/ml1252 (no OVERRUN_SLOT_SIZE / '
+          'IR_ONE_INSTRUCTION_MARGIN); the IR-overflow invariants apply only to a FEX that carries them')
+    sys.exit(0)
+
 MB = 1024 * 1024
 
 

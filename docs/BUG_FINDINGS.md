@@ -631,3 +631,12 @@ base=0xb30000000`, against #36's 17 GB and 2 GB — the pressure that exhausted 
 #36 is not obviously present. If a `[callret] RESERVE FAILED` row appears in the 2.1.14 run,
 that is the price of this revert and the answer is to re-pin `2ee1437` + re-apply
 `7d1aa0b`/`529230a`, not to go back to the full `050e446`.
+
+**The two FEX-source checks are now pin-aware.**
+`check-callret-geometry.py` and `check-ir-overflow.py` assert source that only exists in a FEX
+carrying ml1250/ml1252, so on the reverted pin they would have turned CI red for the wrong
+reason. Each now reads the pin's own source and, when it predates the change, prints
+`SKIP: FEX is pinned before …` and exits 0 — the skip is keyed on `CALLRET_STACK_SIZE` /
+`OVERRUN_SLOT_SIZE`, not on a flag, so a pin that carries the work is still checked in full
+(both PASS at `050e446`, both SKIP at `3bec2ac`; and all four `patches/fex/*.patch` still
+apply at `3bec2ac`, which is the build's actual requirement).
